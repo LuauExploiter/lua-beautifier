@@ -70,6 +70,7 @@ export default function Home() {
     renameVariables: false,
     renameGlobals: false,
     solveMath: false,
+    smartRename: false,
   });
 
   const [formatting, setFormatting] = useState({
@@ -378,6 +379,12 @@ export default function Home() {
                               desc: "Shorten local variable names",
                             },
                             {
+                              id: "smartRename",
+                              label: "Smart Rename",
+                              desc: "Use semantic names (v=game.Players → Players)",
+                              minifyOnly: true,
+                            },
+                            {
                               id: "renameGlobals",
                               label: "Rename Globals",
                               desc: "Shorten global names (risky)",
@@ -387,29 +394,34 @@ export default function Home() {
                               label: "Solve Math",
                               desc: "Pre-calculate constant expressions",
                             },
-                          ].map((opt) => (
-                            <motion.div
-                              key={opt.id}
-                              className="flex items-start space-x-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                              whileHover={{ scale: 1.01 }}
-                              whileTap={{ scale: 0.99 }}
-                            >
-                              <Checkbox
-                                id={opt.id}
-                                checked={options[opt.id as keyof typeof options]}
-                                onCheckedChange={(checked) =>
-                                  setOptions({ ...options, [opt.id]: !!checked })
-                                }
-                                data-testid={`checkbox-${opt.id}`}
-                              />
-                              <div className="space-y-1">
-                                <Label htmlFor={opt.id} className="cursor-pointer font-medium">
-                                  {opt.label}
-                                </Label>
-                                <p className="text-xs text-muted-foreground">{opt.desc}</p>
-                              </div>
-                            </motion.div>
-                          ))}
+                          ]
+                            .filter((opt) => !("minifyOnly" in opt) || mode === "minify")
+                            .map((opt) => (
+                              <motion.div
+                                key={opt.id}
+                                className="flex items-start space-x-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                                whileHover={{ scale: 1.01 }}
+                                whileTap={{ scale: 0.99 }}
+                              >
+                                <Checkbox
+                                  id={opt.id}
+                                  checked={options[opt.id as keyof typeof options]}
+                                  disabled={
+                                    opt.id === "smartRename" && !options.renameVariables
+                                  }
+                                  onCheckedChange={(checked) =>
+                                    setOptions({ ...options, [opt.id]: !!checked })
+                                  }
+                                  data-testid={`checkbox-${opt.id}`}
+                                />
+                                <div className="space-y-1">
+                                  <Label htmlFor={opt.id} className="cursor-pointer font-medium">
+                                    {opt.label}
+                                  </Label>
+                                  <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                                </div>
+                              </motion.div>
+                            ))}
                         </div>
                       </div>
 

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import luaFormat from "lua-format";
+import { analyzeVariableSemantics, applySemanticRenames } from "./variableAnalyzer";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -32,7 +33,17 @@ export async function registerRoutes(
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
       });
-      res.json({ result });
+
+      // Apply smart semantic renaming if enabled
+      let finalResult = result;
+      if (options?.renameVariables && options?.smartRename) {
+        const semantics = analyzeVariableSemantics(code);
+        if (Object.keys(semantics).length > 0) {
+          finalResult = applySemanticRenames(result, semantics);
+        }
+      }
+
+      res.json({ result: finalResult });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
