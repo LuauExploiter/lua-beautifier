@@ -1,7 +1,5 @@
 /**
- * Lua variable semantic analyzer
- * Extracts meaningful names from variable assignments
- * e.g., local v = game.Players -> v should be renamed to Players
+ * Advanced Lua variable semantic analyzer with smart pattern recognition
  */
 
 interface VariableMapping {
@@ -10,174 +8,114 @@ interface VariableMapping {
 
 export function analyzeVariableSemantics(code: string): VariableMapping {
   const mapping: VariableMapping = {};
-
-  // Match: local/var identifier = expression
   const assignmentPattern =
     /\b(?:local|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^;\n]+)/g;
 
   let match;
+  const usedNames = new Set<string>();
+
   while ((match = assignmentPattern.exec(code)) !== null) {
     const varName = match[1];
     const expression = match[2].trim();
-
-    // Extract semantic name from the expression
-    const semanticName = extractSemanticName(expression);
-    if (semanticName && semanticName !== varName) {
+    const semanticName = extractSemanticName(expression, usedNames);
+    
+    if (semanticName && semanticName !== varName && !usedNames.has(semanticName)) {
       mapping[varName] = semanticName;
+      usedNames.add(semanticName);
     }
   }
 
   return mapping;
 }
 
-function extractSemanticName(expression: string): string | null {
-  // Remove trailing comments
+function extractSemanticName(expression: string, usedNames: Set<string>): string | null {
   expression = expression.replace(/--.*$/, "").trim();
 
-  // Chain member access: a.b.c -> use 'c' (the last member)
-  // Example: game.Players -> Players, v.LocalPlayer -> LocalPlayer
+  // Try member chain extraction (highest priority)
   const memberChainMatch = expression.match(/[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/);
   if (memberChainMatch) {
     const chain = memberChainMatch[0];
     const parts = chain.split(".");
-    const lastPart = parts[parts.length - 1];
-
-    // Validate the last part is a reasonable name
-    if (isValidIdentifier(lastPart) && lastPart.length <= 30) {
-      return lastPart;
+    
+    // Try last part first
+    for (let i = parts.length - 1; i >= Math.max(1, parts.length - 2); i--) {
+      const part = parts[i];
+      if (isValidIdentifier(part) && part.length <= 30 && !usedNames.has(part)) {
+        return part;
+      }
     }
   }
 
-  // Function calls: getSomething() -> use 'Something'
-  // Example: GetPlayer() -> Player
+  // Function calls with prefix removal
   const functionCallMatch = expression.match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
   if (functionCallMatch) {
     const funcName = functionCallMatch[1];
-    // Extract meaningful part from function name
-    // Common patterns: Get*, Create*, Load* -> remove prefix
-    let semanticName = funcName;
-    const prefixes = ["get", "create", "load", "find", "fetch", "init"];
-    prefixes.forEach((prefix) => {
-      if (funcName.toLowerCase().startsWith(prefix)) {
-        semanticName = funcName.substring(prefix.length);
-      }
-    });
-
-    if (semanticName && semanticName.length > 0 && isValidIdentifier(semanticName)) {
+    const semanticName = extractFromFunctionName(funcName);
+    if (semanticName && !usedNames.has(semanticName)) {
       return semanticName;
     }
   }
 
-  // Table constructors: { x = 1, y = 2 } -> Table
+  // Table constructor
   if (expression.match(/^\s*\{/)) {
-    return "Table";
+    if (!usedNames.has("Tbl")) return "Tbl";
+    if (!usedNames.has("Data")) return "Data";
   }
 
-  // String literals: "name" -> Str
-  if (expression.match(/^["']/)) {
-    return "Str";
-  }
-
-  // Number literals
-  if (expression.match(/^\d+/)) {
-    return "Num";
-  }
-
-  // Boolean literals
-  if (expression.match(/^(?:true|false)$/)) {
-    return "Bool";
-  }
-
-  // Array/table access: arr[i] -> use array name
+  // Array/table access
   const arrayAccessMatch = expression.match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*\[/);
   if (arrayAccessMatch) {
-    return arrayAccessMatch[1];
+    const arrayName = arrayAccessMatch[1];
+    if (!usedNames.has(arrayName)) return arrayName;
   }
 
   return null;
 }
 
+function extractFromFunctionName(funcName: string): string | null {
+  const prefixes = [
+    "get", "create", "load", "find", "fetch", "init", "make", 
+    "build", "setup", "new", "spawn", "start", "begin", "open",
+    "read", "write", "send", "receive", "request", "handle"
+  ];
+
+  for (const prefix of prefixes) {
+    if (funcName.toLowerCase().startsWith(prefix)) {
+      const remaining = funcName.substring(prefix.length);
+      if (remaining && isValidIdentifier(remaining)) {
+        return remaining;
+      }
+    }
+  }
+
+  return funcName.length <= 20 && isValidIdentifier(funcName) ? funcName : null;
+}
+
 function isValidIdentifier(str: string): boolean {
-  // Must start with letter or underscore, contain only alphanumerics and underscores
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(str);
 }
 
-/**
- * Apply semantic variable renaming to minified code
- * Creates a mapping of boring names to semantic names
- */
-export function createSmartRenameMapping(
-  originalCode: string,
-  minifiedCode: string
-): { [boringName: string]: string } {
-  const semanticMap = analyzeVariableSemantics(originalCode);
-
-  // Get all variable names used in original code
-  const originalVars = new Set<string>();
-  const varPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
-  let match;
-  while ((match = varPattern.exec(originalCode)) !== null) {
-    originalVars.add(match[1]);
-  }
-
-  // Create mapping from boring minified names to semantic names
-  const renameMapping: { [key: string]: string } = {};
-
-  // Track which semantic names have been used
-  const usedSemanticNames = new Set<string>();
-
-  // Generate boring variable names (a, b, c, ... aa, ab, etc)
-  const boringNames = generateBoringNames(originalVars.size + 100);
-  let boringIndex = 0;
-
-  // Assign semantic names based on the mapping
-  for (const [originalVar, semanticName] of Object.entries(semanticMap)) {
-    // Find the minified name for this original variable
-    const minifiedVarName = boringNames[boringIndex];
-    if (minifiedVarName && !usedSemanticNames.has(semanticName)) {
-      renameMapping[minifiedVarName] = semanticName;
-      usedSemanticNames.add(semanticName);
-    }
-    boringIndex++;
-  }
-
-  return renameMapping;
-}
-
-/**
- * Generate variable names: a, b, c, ..., z, aa, ab, ac, ...
- */
-function generateBoringNames(count: number): string[] {
-  const names: string[] = [];
-  for (let i = 0; i < count; i++) {
-    if (i < 26) {
-      // a-z
-      names.push(String.fromCharCode(97 + i));
-    } else {
-      // aa, ab, ac, ..., ba, bb, ...
-      const firstChar = String.fromCharCode(97 + Math.floor((i - 26) / 26));
-      const secondChar = String.fromCharCode(97 + ((i - 26) % 26));
-      names.push(firstChar + secondChar);
-    }
-  }
-  return names;
-}
-
-/**
- * Post-process minified code to replace boring variable names with semantic ones
- */
-export function applySemanticRenames(
-  minifiedCode: string,
-  semantics: VariableMapping
-): string {
+export function applySemanticRenames(minifiedCode: string, semantics: VariableMapping): string {
   let result = minifiedCode;
-
-  // Replace each boring name with its semantic counterpart
   for (const [boringName, semanticName] of Object.entries(semantics)) {
-    // Use word boundaries to avoid partial replacements
     const regex = new RegExp(`\\b${boringName}\\b`, "g");
     result = result.replace(regex, semanticName);
   }
-
   return result;
+}
+
+/**
+ * Advanced code analysis for additional optimizations
+ */
+export function analyzeCodeStructure(code: string) {
+  return {
+    hasRecursion: /local\s+\w+\s*=\s*function\s*\(/.test(code) && 
+                  /function\s*\(/m.test(code),
+    hasLoops: /\b(?:for|while|repeat)\b/i.test(code),
+    hasConditionals: /\b(?:if|then|else|elseif)\b/i.test(code),
+    hasTableOperations: /\{|\}/g.test(code),
+    hasFunctionCalls: /\w+\s*\(/g.test(code),
+    hasStrings: /"[^"]*"|'[^']*'/g.test(code),
+    lineCount: code.split('\n').length,
+  };
 }
