@@ -12,20 +12,22 @@ export async function registerRoutes(
     const { code, options } = req.body;
     if (!code) return res.status(400).json({ error: 'No code provided' });
     try {
-      let result = luaFormat.Beautify(code, {
-        RenameVariables: options?.renameVariables ?? false,
+      let processedCode = code;
+
+      // Apply smart semantic renaming FIRST (before beautifying)
+      if (options?.renameVariables && options?.smartRename) {
+        const semantics = analyzeVariableSemantics(code);
+        if (Object.keys(semantics).length > 0) {
+          processedCode = applySemanticRenames(code, semantics);
+        }
+      }
+
+      let result = luaFormat.Beautify(processedCode, {
+        RenameVariables: (options?.renameVariables && !options?.smartRename) ?? false,
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
         Indentation: options?.useTabs ? '\t' : ' '.repeat(options?.indentSize ?? 2),
       });
-
-      // Apply smart semantic renaming if enabled (restore minified variable names)
-      if (options?.renameVariables && options?.smartRename) {
-        const semantics = analyzeVariableSemantics(code);
-        if (Object.keys(semantics).length > 0) {
-          result = applySemanticRenames(result, semantics);
-        }
-      }
 
       // Apply post-processing options
       if (options?.removeBlankLines) {
