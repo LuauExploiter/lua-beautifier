@@ -19,6 +19,14 @@ export async function registerRoutes(
         Indentation: options?.useTabs ? '\t' : ' '.repeat(options?.indentSize ?? 2),
       });
 
+      // Apply smart semantic renaming if enabled (restore minified variable names)
+      if (options?.renameVariables && options?.smartRename) {
+        const semantics = analyzeVariableSemantics(code);
+        if (Object.keys(semantics).length > 0) {
+          result = applySemanticRenames(result, semantics);
+        }
+      }
+
       // Apply post-processing options
       if (options?.removeBlankLines) {
         result = result.replace(/\n\s*\n/g, '\n');

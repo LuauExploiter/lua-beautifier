@@ -152,6 +152,7 @@ export default function Home() {
 
   const beautifyOpts = [
     { id: "renameVariables", label: "Rename Variables", desc: "Shorten variable names" },
+    { id: "smartRename", label: "Smart Rename", desc: "Semantic naming (restore minified vars)" },
     { id: "normalizeQuotes", label: "Normalize Quotes", desc: "Convert to double quotes" },
     { id: "sortTableFields", label: "Sort Table Fields", desc: "Alphabetically sort fields" },
     { id: "removeBlankLines", label: "Remove Blank Lines", desc: "Compress empty lines" },
