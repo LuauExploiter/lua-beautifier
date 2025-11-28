@@ -55,6 +55,7 @@
     "express-session": "^1.18.1",
     "framer-motion": "^11.13.1",
     "input-otp": "^1.4.2",
+    "lua-format": "^1.5.3-c",
     "luamin": "^1.0.4",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",

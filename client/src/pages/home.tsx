@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Copy,
-  Zap,
+  Wand2,
   Code2,
   Moon,
   Sun,
@@ -31,30 +31,29 @@ import {
   Sparkles,
   CheckCircle2,
   XCircle,
-  Info,
   ChevronDown,
-  ChevronUp,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 
-const DEFAULT_CODE = `-- Welcome to Luamin!
--- Paste your Lua code here and click Minify
+const DEFAULT_CODE = `-- Paste your messy Lua code here!
+-- Click Beautify to format it nicely
 
 local function greet(name)
-    local message = "Hello, " .. name .. "!"
-    print(message)
-    return message
+local message="Hello, "..name.."!"
+print(message)
+return message
 end
 
-local function calculate(a, b)
-    local sum = a + b
-    local product = a * b
-    return sum, product
+local function calculate(a,b)
+local sum=a+b
+local product=a*b
+return sum,product
 end
 
--- Call the functions
 greet("World")
-local s, p = calculate(10, 20)
-print("Sum:", s, "Product:", p)
+local s,p=calculate(10,20)
+print("Sum:",s,"Product:",p)
 `;
 
 export default function Home() {
@@ -62,26 +61,20 @@ export default function Home() {
   const [outputCode, setOutputCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [activeTab, setActiveTab] = useState("minify");
+  const [mode, setMode] = useState<"beautify" | "minify">("beautify");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
 
   const [options, setOptions] = useState({
-    renameVariables: true,
+    renameVariables: false,
     renameGlobals: false,
     solveMath: false,
-    removeComments: true,
-    removeWhitespace: true,
-    shortenNumbers: true,
-    optimizeStrings: false,
-    inlineLocals: false,
   });
 
   const [formatting, setFormatting] = useState({
     indentSize: 2,
     useTabs: false,
-    maxLineLength: 80,
   });
 
   const { toast } = useToast();
@@ -95,11 +88,11 @@ export default function Home() {
     }
   }, []);
 
-  const handleMinify = async () => {
+  const handleProcess = async () => {
     if (!inputCode.trim()) {
       toast({
         title: "Error",
-        description: "Please enter some Lua code to minify",
+        description: "Please enter some Lua code",
         variant: "destructive",
       });
       return;
@@ -109,24 +102,34 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/minify", {
+      const endpoint = mode === "beautify" ? "/beautify" : "/minify";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: inputCode, options }),
+        body: JSON.stringify({ 
+          code: inputCode, 
+          options: {
+            ...options,
+            ...formatting,
+          }
+        }),
       });
 
       const data = await response.json();
 
       if (response.ok) {
         setOutputCode(data.result);
+        const action = mode === "beautify" ? "Beautified" : "Minified";
         toast({
-          title: "Minified Successfully",
-          description: `Reduced ${inputCode.length} → ${data.result.length} chars (${Math.round((1 - data.result.length / inputCode.length) * 100)}% smaller)`,
+          title: `${action} Successfully!`,
+          description: mode === "beautify" 
+            ? `Formatted ${inputCode.split('\n').length} lines of code`
+            : `Reduced ${inputCode.length} → ${data.result.length} chars`,
         });
       } else {
         toast({
-          title: "Minification Error",
-          description: data.error || "Failed to minify code",
+          title: "Error",
+          description: data.error || "Failed to process code",
           variant: "destructive",
         });
       }
@@ -155,10 +158,10 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "minified.lua";
+    a.download = mode === "beautify" ? "formatted.lua" : "minified.lua";
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: "Downloaded minified.lua" });
+    toast({ title: `Downloaded ${mode === "beautify" ? "formatted" : "minified"}.lua` });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,7 +202,7 @@ export default function Home() {
     inputChars: inputCode.length,
     outputLines: outputCode.split("\n").length,
     outputChars: outputCode.length,
-    reduction: outputCode
+    reduction: outputCode && inputCode
       ? Math.round((1 - outputCode.length / inputCode.length) * 100)
       : 0,
   };
@@ -244,10 +247,10 @@ export default function Home() {
             </motion.div>
             <div>
               <h1 className="text-3xl font-bold text-foreground tracking-tight">
-                Luamin
+                Lua Beautifier
               </h1>
               <p className="text-sm text-muted-foreground">
-                Lua Code Minifier & Optimizer
+                Format & Minify Lua Code
               </p>
             </div>
           </div>
@@ -316,103 +319,64 @@ export default function Home() {
           initial="hidden"
           animate="visible"
         >
-          <motion.div variants={itemVariants}>
-            <Card className="mb-6 overflow-hidden">
-              <CardHeader
-                className="pb-3 cursor-pointer"
+          <motion.div variants={itemVariants} className="mb-6">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <Tabs value={mode} onValueChange={(v) => setMode(v as "beautify" | "minify")} className="w-full sm:w-auto">
+                <TabsList className="grid w-full sm:w-auto grid-cols-2">
+                  <TabsTrigger value="beautify" className="gap-2" data-testid="tab-beautify">
+                    <Maximize2 className="h-4 w-4" />
+                    Beautify
+                  </TabsTrigger>
+                  <TabsTrigger value="minify" className="gap-2" data-testid="tab-minify">
+                    <Minimize2 className="h-4 w-4" />
+                    Minify
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setShowAdvanced(!showAdvanced)}
+                className="gap-2"
+                data-testid="button-toggle-options"
               >
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Settings2 className="h-5 w-5" />
-                    Options
-                  </CardTitle>
-                  <motion.div
-                    animate={{ rotate: showAdvanced ? 180 : 0 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  </motion.div>
-                </div>
-              </CardHeader>
-
-              <AnimatePresence>
+                <Settings2 className="h-4 w-4" />
+                Options
                 <motion.div
-                  initial={false}
-                  animate={{
-                    height: showAdvanced ? "auto" : 0,
-                    opacity: showAdvanced ? 1 : 0,
-                  }}
-                  transition={{ duration: 0.3, ease: "easeInOut" }}
-                  style={{ overflow: "hidden" }}
+                  animate={{ rotate: showAdvanced ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  <CardContent className="pt-0">
-                    <Tabs defaultValue="basic" className="w-full">
-                      <TabsList className="mb-4">
-                        <TabsTrigger value="basic">Basic</TabsTrigger>
-                        <TabsTrigger value="advanced">Advanced</TabsTrigger>
-                        <TabsTrigger value="formatting">Formatting</TabsTrigger>
-                      </TabsList>
+                  <ChevronDown className="h-4 w-4" />
+                </motion.div>
+              </Button>
+            </div>
+          </motion.div>
 
-                      <TabsContent value="basic">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <AnimatePresence>
+            {showAdvanced && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                className="overflow-hidden mb-6"
+              >
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-4">
+                        <h3 className="font-semibold flex items-center gap-2">
+                          <Settings2 className="h-4 w-4" />
+                          Optimization
+                        </h3>
+                        <div className="space-y-3">
                           {[
                             {
                               id: "renameVariables",
                               label: "Rename Variables",
                               desc: "Shorten local variable names",
                             },
-                            {
-                              id: "removeComments",
-                              label: "Remove Comments",
-                              desc: "Strip all comments",
-                            },
-                            {
-                              id: "removeWhitespace",
-                              label: "Remove Whitespace",
-                              desc: "Eliminate unnecessary spaces",
-                            },
-                            {
-                              id: "shortenNumbers",
-                              label: "Shorten Numbers",
-                              desc: "Optimize number formats",
-                            },
-                          ].map((opt) => (
-                            <motion.div
-                              key={opt.id}
-                              className="flex items-start space-x-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                            >
-                              <Checkbox
-                                id={opt.id}
-                                checked={
-                                  options[opt.id as keyof typeof options] as boolean
-                                }
-                                onCheckedChange={(checked) =>
-                                  setOptions({ ...options, [opt.id]: !!checked })
-                                }
-                                data-testid={`checkbox-${opt.id}`}
-                              />
-                              <div className="space-y-1">
-                                <Label
-                                  htmlFor={opt.id}
-                                  className="cursor-pointer font-medium"
-                                >
-                                  {opt.label}
-                                </Label>
-                                <p className="text-xs text-muted-foreground">
-                                  {opt.desc}
-                                </p>
-                              </div>
-                            </motion.div>
-                          ))}
-                        </div>
-                      </TabsContent>
-
-                      <TabsContent value="advanced">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          {[
                             {
                               id: "renameGlobals",
                               label: "Rename Globals",
@@ -421,140 +385,90 @@ export default function Home() {
                             {
                               id: "solveMath",
                               label: "Solve Math",
-                              desc: "Pre-calculate constants",
-                            },
-                            {
-                              id: "optimizeStrings",
-                              label: "Optimize Strings",
-                              desc: "Deduplicate string literals",
-                            },
-                            {
-                              id: "inlineLocals",
-                              label: "Inline Locals",
-                              desc: "Inline single-use variables",
+                              desc: "Pre-calculate constant expressions",
                             },
                           ].map((opt) => (
                             <motion.div
                               key={opt.id}
                               className="flex items-start space-x-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
+                              whileHover={{ scale: 1.01 }}
+                              whileTap={{ scale: 0.99 }}
                             >
                               <Checkbox
                                 id={opt.id}
-                                checked={
-                                  options[opt.id as keyof typeof options] as boolean
-                                }
+                                checked={options[opt.id as keyof typeof options]}
                                 onCheckedChange={(checked) =>
                                   setOptions({ ...options, [opt.id]: !!checked })
                                 }
                                 data-testid={`checkbox-${opt.id}`}
                               />
                               <div className="space-y-1">
-                                <Label
-                                  htmlFor={opt.id}
-                                  className="cursor-pointer font-medium"
-                                >
+                                <Label htmlFor={opt.id} className="cursor-pointer font-medium">
                                   {opt.label}
                                 </Label>
-                                <p className="text-xs text-muted-foreground">
-                                  {opt.desc}
-                                </p>
+                                <p className="text-xs text-muted-foreground">{opt.desc}</p>
                               </div>
                             </motion.div>
                           ))}
                         </div>
-                      </TabsContent>
+                      </div>
 
-                      <TabsContent value="formatting">
-                        <div className="space-y-6">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <Label className="font-medium">Use Tabs</Label>
-                              <p className="text-xs text-muted-foreground">
-                                Use tabs instead of spaces
-                              </p>
-                            </div>
-                            <Switch
-                              checked={formatting.useTabs}
-                              onCheckedChange={(checked) =>
-                                setFormatting({ ...formatting, useTabs: checked })
-                              }
-                              data-testid="switch-use-tabs"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
+                      {mode === "beautify" && (
+                        <div className="space-y-4">
+                          <h3 className="font-semibold flex items-center gap-2">
+                            <Code2 className="h-4 w-4" />
+                            Formatting
+                          </h3>
+                          <div className="space-y-6 p-3 rounded-lg bg-muted/30">
                             <div className="flex items-center justify-between">
-                              <Label className="font-medium">
-                                Indent Size: {formatting.indentSize}
-                              </Label>
+                              <div>
+                                <Label className="font-medium">Use Tabs</Label>
+                                <p className="text-xs text-muted-foreground">
+                                  Use tabs instead of spaces
+                                </p>
+                              </div>
+                              <Switch
+                                checked={formatting.useTabs}
+                                onCheckedChange={(checked) =>
+                                  setFormatting({ ...formatting, useTabs: checked })
+                                }
+                                data-testid="switch-use-tabs"
+                              />
                             </div>
-                            <Slider
-                              value={[formatting.indentSize]}
-                              onValueChange={([val]) =>
-                                setFormatting({ ...formatting, indentSize: val })
-                              }
-                              min={1}
-                              max={8}
-                              step={1}
-                              data-testid="slider-indent-size"
-                            />
-                          </div>
 
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label className="font-medium">
-                                Max Line Length: {formatting.maxLineLength}
-                              </Label>
-                            </div>
-                            <Slider
-                              value={[formatting.maxLineLength]}
-                              onValueChange={([val]) =>
-                                setFormatting({ ...formatting, maxLineLength: val })
-                              }
-                              min={40}
-                              max={200}
-                              step={10}
-                              data-testid="slider-max-line"
-                            />
+                            {!formatting.useTabs && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="space-y-2"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <Label className="font-medium">
+                                    Indent Size: {formatting.indentSize} spaces
+                                  </Label>
+                                </div>
+                                <Slider
+                                  value={[formatting.indentSize]}
+                                  onValueChange={([val]) =>
+                                    setFormatting({ ...formatting, indentSize: val })
+                                  }
+                                  min={1}
+                                  max={8}
+                                  step={1}
+                                  data-testid="slider-indent-size"
+                                />
+                              </motion.div>
+                            )}
                           </div>
                         </div>
-                      </TabsContent>
-                    </Tabs>
+                      )}
+                    </div>
                   </CardContent>
-                </motion.div>
-              </AnimatePresence>
-
-              {!showAdvanced && (
-                <CardContent className="pt-0">
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(options)
-                      .filter(([, v]) => v)
-                      .map(([key]) => (
-                        <motion.div
-                          key={key}
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          exit={{ scale: 0 }}
-                        >
-                          <Badge variant="secondary" className="capitalize">
-                            {key.replace(/([A-Z])/g, " $1").trim()}
-                          </Badge>
-                        </motion.div>
-                      ))}
-                    <Badge
-                      variant="outline"
-                      className="cursor-pointer"
-                      onClick={() => setShowAdvanced(true)}
-                    >
-                      + Configure
-                    </Badge>
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-          </motion.div>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <motion.div
             variants={itemVariants}
@@ -566,7 +480,7 @@ export default function Home() {
                   <FileCode className="h-5 w-5 text-muted-foreground" />
                   <CardTitle className="text-lg">Input</CardTitle>
                   <Badge variant="outline" className="ml-2">
-                    {stats.inputLines} lines • {stats.inputChars} chars
+                    {stats.inputLines} lines
                   </Badge>
                 </div>
                 <div className="flex gap-1">
@@ -582,9 +496,7 @@ export default function Home() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        onClick={() =>
-                          document.getElementById("file-upload")?.click()
-                        }
+                        onClick={() => document.getElementById("file-upload")?.click()}
                         data-testid="button-upload"
                       >
                         <Upload className="h-4 w-4" />
@@ -633,18 +545,9 @@ export default function Home() {
                     <motion.div
                       initial={{ scale: 0, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      className="flex items-center gap-2"
                     >
-                      <Badge
-                        variant={stats.reduction > 0 ? "default" : "secondary"}
-                        className="ml-2"
-                      >
-                        {stats.reduction > 0 ? (
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                        ) : (
-                          <XCircle className="h-3 w-3 mr-1" />
-                        )}
-                        {stats.reduction}% smaller
+                      <Badge variant="secondary" className="ml-2">
+                        {stats.outputLines} lines
                       </Badge>
                     </motion.div>
                   )}
@@ -692,9 +595,7 @@ export default function Home() {
                           </AnimatePresence>
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>
-                        {copied ? "Copied!" : "Copy"}
-                      </TooltipContent>
+                      <TooltipContent>{copied ? "Copied!" : "Copy"}</TooltipContent>
                     </Tooltip>
                   </motion.div>
                 )}
@@ -709,7 +610,7 @@ export default function Home() {
                   <Editor
                     height="100%"
                     defaultLanguage="lua"
-                    value={outputCode || "// Minified code will appear here..."}
+                    value={outputCode || "-- Formatted code will appear here..."}
                     theme={darkMode ? "vs-dark" : "light"}
                     options={{
                       readOnly: true,
@@ -735,10 +636,10 @@ export default function Home() {
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Button
                 size="lg"
-                onClick={handleMinify}
+                onClick={handleProcess}
                 disabled={isLoading || !inputCode.trim()}
                 className="px-16 py-6 text-lg font-semibold shadow-lg"
-                data-testid="button-minify"
+                data-testid="button-process"
               >
                 <AnimatePresence mode="wait">
                   {isLoading ? (
@@ -751,15 +652,11 @@ export default function Home() {
                     >
                       <motion.div
                         animate={{ rotate: 360 }}
-                        transition={{
-                          repeat: Infinity,
-                          duration: 1,
-                          ease: "linear",
-                        }}
+                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
                       >
-                        <Zap className="h-5 w-5" />
+                        <Wand2 className="h-5 w-5" />
                       </motion.div>
-                      Minifying...
+                      Processing...
                     </motion.div>
                   ) : (
                     <motion.div
@@ -769,15 +666,24 @@ export default function Home() {
                       exit={{ opacity: 0 }}
                       className="flex items-center gap-2"
                     >
-                      <Zap className="h-5 w-5" />
-                      Minify Code
+                      {mode === "beautify" ? (
+                        <>
+                          <Wand2 className="h-5 w-5" />
+                          Beautify Code
+                        </>
+                      ) : (
+                        <>
+                          <Minimize2 className="h-5 w-5" />
+                          Minify Code
+                        </>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
               </Button>
             </motion.div>
 
-            {outputCode && (
+            {outputCode && mode === "minify" && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -786,19 +692,14 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{stats.inputChars}</span>
                   <span>→</span>
-                  <span className="font-medium text-primary">
-                    {stats.outputChars}
-                  </span>
+                  <span className="font-medium text-primary">{stats.outputChars}</span>
                   <span>characters</span>
-                </div>
-                <Separator orientation="vertical" className="h-4" />
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{stats.inputLines}</span>
-                  <span>→</span>
-                  <span className="font-medium text-primary">
-                    {stats.outputLines}
-                  </span>
-                  <span>lines</span>
+                  {stats.reduction > 0 && (
+                    <Badge variant="default">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      {stats.reduction}% smaller
+                    </Badge>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -813,7 +714,7 @@ export default function Home() {
         >
           <p className="flex items-center justify-center gap-2">
             <Sparkles className="h-4 w-4" />
-            Powered by luamin
+            Powered by lua-format
           </p>
         </motion.footer>
       </div>
