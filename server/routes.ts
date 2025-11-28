@@ -1,16 +1,27 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import luamin from "luamin";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  app.post('/beautify', (req, res) => {
+    const code = req.body.code;
+    if (!code) return res.status(400).json({ error: 'No code provided' });
+    res.status(501).json({ error: 'Beautify not available in luamin package - only minify is supported' });
+  });
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  app.post('/minify', (req, res) => {
+    const code = req.body.code;
+    if (!code) return res.status(400).json({ error: 'No code provided' });
+    try {
+      res.json({ result: luamin.minify(code) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
 
   return httpServer;
 }
