@@ -330,6 +330,9 @@ function isCommonKeyword(str: string): boolean {
     "script",
     "self",
     "this",
+    "repeat",
+    "until",
+    "elseif",
   ];
   return keywords.includes(str.toLowerCase());
 }
@@ -340,6 +343,19 @@ export function applySemanticRenames(
 ): string {
   let result = minifiedCode;
   for (const [boringName, semanticName] of Object.entries(semantics)) {
+    // Safety checks
+    if (!isValidIdentifier(boringName) || !isValidIdentifier(semanticName)) {
+      continue;
+    }
+    if (isCommonKeyword(boringName) || isCommonKeyword(semanticName)) {
+      continue;
+    }
+    
+    // Only replace if the boring name is at least 2 chars (avoid single letter issues)
+    if (boringName.length < 1) {
+      continue;
+    }
+    
     const regex = new RegExp(`\\b${boringName}\\b`, "g");
     result = result.replace(regex, semanticName);
   }
