@@ -16,9 +16,13 @@ export async function registerRoutes(
 
       // Apply smart semantic renaming FIRST (before beautifying)
       if (options?.renameVariables && options?.smartRename) {
-        const semantics = analyzeVariableSemantics(code);
-        if (Object.keys(semantics).length > 0) {
-          processedCode = applySemanticRenames(code, semantics);
+        try {
+          const semantics = analyzeVariableSemantics(code);
+          if (Object.keys(semantics).length > 0) {
+            processedCode = applySemanticRenames(code, semantics);
+          }
+        } catch (semanticErr) {
+          console.warn('Smart rename failed, using original code:', semanticErr);
         }
       }
 
