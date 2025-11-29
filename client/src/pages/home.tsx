@@ -55,7 +55,7 @@ export default function Home() {
     removeComments: false,
     removePrints: false,
     solveMath: false,
-    smartRename: true,
+    renameVariables: true,
   });
 
   const [formatting, setFormatting] = useState({
@@ -93,8 +93,8 @@ export default function Home() {
         // Start with solved math expressions
         let result = data.solvedCode || inputCode;
         
-        // Apply smart renames if enabled
-        if (beautifyOptions.smartRename) {
+        // Apply variable renames if enabled
+        if (beautifyOptions.renameVariables) {
           for (const v of data.variables) {
             const regex = new RegExp(`\\b${v.old}\\b`, "g");
             result = result.replace(regex, v.detected);
@@ -257,7 +257,7 @@ export default function Home() {
     { id: "removeComments", label: "Remove Comments", desc: "Strip comment lines" },
     { id: "removePrints", label: "Remove Prints/Warns", desc: "Strip print() and warn() calls" },
     { id: "solveMath", label: "Solve Math", desc: "Pre-calculate expressions" },
-    { id: "smartRename", label: "Smart Rename", desc: "Rename variables semantically" },
+    { id: "renameVariables", label: "Rename Variables", desc: "Rename variables semantically" },
   ];
 
   const minifyOpts = [
