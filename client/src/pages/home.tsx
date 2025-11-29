@@ -81,12 +81,36 @@ export default function Home() {
     
     setIsLoading(true);
     try {
-      // Just apply beautify with selected options - no variable detection
+      let result = inputCode;
+      
+      // Get variable mappings if renaming is enabled
+      if (beautifyOptions.renameVariables) {
+        try {
+          const detectResponse = await fetch("/api/detect-vars", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: inputCode }),
+          });
+          const detectData = await detectResponse.json();
+          
+          // Apply variable renames
+          if (detectData.variables && detectData.variables.length > 0) {
+            for (const v of detectData.variables) {
+              const regex = new RegExp(`\\b${v.old}\\b`, "g");
+              result = result.replace(regex, v.detected);
+            }
+          }
+        } catch (e) {
+          // If detection fails, continue with just beautify
+        }
+      }
+      
+      // Apply beautify with selected options
       const response = await fetch("/beautify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          code: inputCode, 
+          code: result, 
           options: beautifyOptions
         }),
       });
