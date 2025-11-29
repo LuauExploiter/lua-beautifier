@@ -96,17 +96,66 @@ export async function registerRoutes(
     if (!code) return res.status(400).json({ error: 'No code provided' });
     try {
       const variables: Array<{ old: string; detected: string }> = [];
-      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=/g;
+      const typeCounters: { [key: string]: number } = {};
+
+      // Find all local variable assignments with their RHS
+      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\n|$)/g;
       let m;
-      let counter = 0;
       while ((m = regex.exec(code)) !== null) {
-        variables.push({ old: m[1], detected: `Var${++counter}` });
+        const varName = m[1];
+        const rhs = m[2].trim();
+        
+        let semanticName = extractSemanticName(rhs);
+        
+        // Count duplicates and add suffix
+        if (typeCounters[semanticName] !== undefined) {
+          typeCounters[semanticName]++;
+          const finalName = `${semanticName}${typeCounters[semanticName]}`;
+          variables.push({ old: varName, detected: finalName });
+        } else {
+          typeCounters[semanticName] = 1;
+          variables.push({ old: varName, detected: semanticName });
+        }
       }
       res.json({ variables });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
   });
+
+  // Helper to extract semantic name from RHS
+  function extractSemanticName(rhs: string): string {
+    // Handle game:GetService("Players") → Players
+    const getServiceMatch = rhs.match(/GetService\s*\(\s*["']([^"']+)["']\s*\)/);
+    if (getServiceMatch) {
+      return getServiceMatch[1];
+    }
+
+    // Handle Instance.new("ScreenGui") → ScreenGui
+    const instanceNewMatch = rhs.match(/Instance\.new\s*\(\s*["']([^"']+)["']\s*\)/);
+    if (instanceNewMatch) {
+      return instanceNewMatch[1];
+    }
+
+    // Handle game.Players → Players
+    const gamePlayersMatch = rhs.match(/game\.([A-Za-z_]\w*)/);
+    if (gamePlayersMatch) {
+      return gamePlayersMatch[1];
+    }
+
+    // Handle LocalPlayer reference
+    if (rhs.includes('LocalPlayer')) {
+      return 'LocalPlayer';
+    }
+
+    // Handle workspace reference
+    if (rhs.includes('workspace')) {
+      return 'Workspace';
+    }
+
+    // Default to Var
+    return 'Var';
+  }
 
   return httpServer;
 }

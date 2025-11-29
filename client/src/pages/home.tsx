@@ -29,16 +29,13 @@ export default function Home() {
   const [outputCode, setOutputCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [mode, setMode] = useState<"beautify" | "minify" | "manual">("minify");
+  const [mode, setMode] = useState<"beautify" | "minify" | "autobeautify">("minify");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   
-  // Manual rename states
+  // AutoBeautify states
   const [detectedVars, setDetectedVars] = useState<Array<{ old: string; detected: string }>>([]);
-  const [customNames, setCustomNames] = useState<{ [key: string]: string }>({});
-  const [namePattern, setNamePattern] = useState("Frame");
-  const [patternCounter, setPatternCounter] = useState(1);
 
   const [options, setOptions] = useState({
     renameVariables: false,
@@ -70,29 +67,7 @@ export default function Home() {
     }
   }, []);
 
-  const detectVariables = async () => {
-    try {
-      const response = await fetch("/api/detect-vars", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: inputCode }),
-      });
-      const data = await response.json();
-      if (data.variables) {
-        setDetectedVars(data.variables);
-        const initial: { [key: string]: string } = {};
-        data.variables.forEach((v: any, idx: number) => {
-          initial[v.old] = `${namePattern}${idx + 1}`;
-        });
-        setCustomNames(initial);
-        toast({ title: "Variables Detected!", description: `Found ${data.variables.length} variables` });
-      }
-    } catch (err) {
-      toast({ title: "Error", description: "Failed to detect variables", variant: "destructive" });
-    }
-  };
-
-  const applyCustomRenames = async () => {
+  const detectAndRename = async () => {
     if (!inputCode.trim()) {
       toast({ title: "Error", description: "Please enter code", variant: "destructive" });
       return;
@@ -100,15 +75,26 @@ export default function Home() {
     
     setIsLoading(true);
     try {
-      let result = inputCode;
-      for (const [oldName, newName] of Object.entries(customNames)) {
-        const regex = new RegExp(`\\b${oldName}\\b`, "g");
-        result = result.replace(regex, newName);
+      const response = await fetch("/api/detect-vars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: inputCode }),
+      });
+      const data = await response.json();
+      if (data.variables && data.variables.length > 0) {
+        setDetectedVars(data.variables);
+        let result = inputCode;
+        for (const v of data.variables) {
+          const regex = new RegExp(`\\b${v.old}\\b`, "g");
+          result = result.replace(regex, v.detected);
+        }
+        setOutputCode(result);
+        toast({ title: "AutoBeautified!", description: `Renamed ${data.variables.length} variables` });
+      } else {
+        toast({ title: "Info", description: "No variables found to rename", variant: "default" });
       }
-      setOutputCode(result);
-      toast({ title: "Manual Renaming Complete!", description: "Applied custom names successfully" });
     } catch (err) {
-      toast({ title: "Error", description: "Failed to apply renames", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to detect variables", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -121,12 +107,12 @@ export default function Home() {
     }
 
     setHistory((prev) => [...prev.slice(-9), inputCode]);
-    setIsLoading(true);
 
-    try {
-      if (mode === "manual") {
-        await detectVariables();
-      } else {
+    if (mode === "autobeautify") {
+      await detectAndRename();
+    } else {
+      setIsLoading(true);
+      try {
         const endpoint = mode === "beautify" ? "/beautify" : "/minify";
         const response = await fetch(endpoint, {
           method: "POST",
@@ -146,11 +132,11 @@ export default function Home() {
         } else {
           toast({ title: "Error", description: data.error, variant: "destructive" });
         }
+      } catch (err) {
+        toast({ title: "Connection Error", description: "Failed to connect", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) {
-      toast({ title: "Connection Error", description: "Failed to connect", variant: "destructive" });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -270,7 +256,7 @@ export default function Home() {
         <motion.div variants={containerVariants} initial="hidden" animate="visible">
           <motion.div variants={itemVariants} className="mb-6">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-              <Tabs value={mode} onValueChange={(v) => { setMode(v as "beautify" | "minify" | "manual"); setDetectedVars([]); }} className="w-full sm:w-auto">
+              <Tabs value={mode} onValueChange={(v) => { setMode(v as "beautify" | "minify" | "autobeautify"); setDetectedVars([]); }} className="w-full sm:w-auto">
                 <TabsList className="grid w-full sm:w-auto grid-cols-3">
                   <TabsTrigger value="beautify" className="gap-2">
                     <Maximize2 className="h-4 w-4" />
@@ -280,9 +266,9 @@ export default function Home() {
                     <Minimize2 className="h-4 w-4" />
                     Minify
                   </TabsTrigger>
-                  <TabsTrigger value="manual" className="gap-2">
-                    <Pencil className="h-4 w-4" />
-                    Manual
+                  <TabsTrigger value="autobeautify" className="gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    AutoBeautify
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -298,7 +284,7 @@ export default function Home() {
           </motion.div>
 
           <AnimatePresence>
-            {showAdvanced && mode !== "manual" && (
+            {showAdvanced && mode !== "autobeautify" && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
                 <Card>
                   <CardContent className="pt-6">
@@ -326,38 +312,19 @@ export default function Home() {
               </motion.div>
             )}
 
-            {showAdvanced && mode === "manual" && (
+            {showAdvanced && mode === "autobeautify" && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
                 <Card>
                   <CardContent className="pt-6 space-y-4">
-                    <div className="space-y-2">
-                      <Label className="font-medium">Naming Pattern</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={namePattern}
-                          onChange={(e) => setNamePattern(e.target.value)}
-                          placeholder="e.g., Frame, Signal, Var"
-                          className="flex-1"
-                          data-testid="input-pattern"
-                        />
-                        <span className="text-sm text-muted-foreground pt-2">will add 1, 2, 3...</span>
-                      </div>
-                    </div>
-
+                    <p className="text-sm text-muted-foreground">AutoBeautify analyzes variable assignments and automatically renames them based on their values (e.g., game:GetService("Players") → Players)</p>
                     {detectedVars.length > 0 && (
-                      <div className="space-y-2 max-h-40 overflow-y-auto">
-                        <Label className="font-medium text-sm">Custom Names:</Label>
-                        {detectedVars.map((v, idx) => (
-                          <div key={v.old} className="flex gap-2 items-center text-sm">
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        <Label className="font-medium text-sm">Detected Variables:</Label>
+                        {detectedVars.map((v) => (
+                          <div key={v.old} className="flex gap-2 items-center text-sm p-2 bg-muted/30 rounded">
                             <span className="font-mono min-w-20">{v.old}</span>
                             <span className="text-muted-foreground">→</span>
-                            <Input
-                              value={customNames[v.old] || ""}
-                              onChange={(e) => setCustomNames({ ...customNames, [v.old]: e.target.value })}
-                              placeholder={`${namePattern}${idx + 1}`}
-                              className="flex-1 h-8"
-                              data-testid={`input-custom-${v.old}`}
-                            />
+                            <span className="font-semibold text-primary">{v.detected}</span>
                           </div>
                         ))}
                       </div>
@@ -406,7 +373,7 @@ export default function Home() {
               </CardHeader>
               <CardContent className="p-0">
                 <motion.div className="h-[450px] border-t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
-                  <Editor height="100%" defaultLanguage="lua" value={outputCode || "// Output appears here..."} theme={darkMode ? "vs-dark" : "light"} options={{ readOnly: mode !== "manual", minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on", padding: { top: 16, bottom: 16 } }} onChange={mode === "manual" ? (value) => setOutputCode(value || "") : undefined} />
+                  <Editor height="100%" defaultLanguage="lua" value={outputCode || "// Output appears here..."} theme={darkMode ? "vs-dark" : "light"} options={{ readOnly: true, minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on", padding: { top: 16, bottom: 16 } }} />
                 </motion.div>
               </CardContent>
             </Card>
@@ -414,7 +381,7 @@ export default function Home() {
 
           <motion.div variants={itemVariants} className="flex flex-col items-center gap-4 mt-8">
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-              <Button size="lg" onClick={mode === "manual" ? (detectedVars.length > 0 ? applyCustomRenames : handleProcess) : handleProcess} disabled={isLoading || !inputCode.trim()} className="px-16 py-6 text-lg font-semibold">
+              <Button size="lg" onClick={handleProcess} disabled={isLoading || !inputCode.trim()} className="px-16 py-6 text-lg font-semibold">
                 {isLoading ? (
                   <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="flex items-center gap-2">
                     <Wand2 className="h-5 w-5" />
@@ -422,8 +389,8 @@ export default function Home() {
                   </motion.div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {mode === "beautify" ? <Maximize2 className="h-5 w-5" /> : mode === "minify" ? <Minimize2 className="h-5 w-5" /> : <Pencil className="h-5 w-5" />}
-                    {mode === "beautify" ? "Beautify" : mode === "minify" ? "Minify" : (detectedVars.length > 0 ? "Apply Renames" : "Detect Variables")}
+                    {mode === "beautify" ? <Maximize2 className="h-5 w-5" /> : mode === "minify" ? <Minimize2 className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
+                    {mode === "beautify" ? "Beautify" : mode === "minify" ? "Minify" : "AutoBeautify"}
                   </div>
                 )}
               </Button>
