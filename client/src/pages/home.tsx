@@ -29,7 +29,7 @@ export default function Home() {
   const [outputCode, setOutputCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [mode, setMode] = useState<"beautify" | "minify" | "autobeautify">("minify");
+  const [mode, setMode] = useState<"minify" | "autobeautify">("minify");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -50,6 +50,14 @@ export default function Home() {
     removeBlankLines: true,
     normalizeQuotes: false,
     sortTableFields: false,
+  });
+
+  // AutoBeautify specific options
+  const [autoBeautifyOptions, setAutoBeautifyOptions] = useState({
+    removeComments: false,
+    removePrints: false,
+    solveMath: false,
+    smartRename: true,
   });
 
   const [formatting, setFormatting] = useState({
@@ -78,7 +86,7 @@ export default function Home() {
       const response = await fetch("/api/detect-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: inputCode }),
+        body: JSON.stringify({ code: inputCode, options: autoBeautifyOptions }),
       });
       const data = await response.json();
       if (data.variables && data.variables.length > 0) {
@@ -87,10 +95,12 @@ export default function Home() {
         // Start with solved math expressions
         let result = data.solvedCode || inputCode;
         
-        // Apply smart renames
-        for (const v of data.variables) {
-          const regex = new RegExp(`\\b${v.old}\\b`, "g");
-          result = result.replace(regex, v.detected);
+        // Apply smart renames if enabled
+        if (autoBeautifyOptions.smartRename) {
+          for (const v of data.variables) {
+            const regex = new RegExp(`\\b${v.old}\\b`, "g");
+            result = result.replace(regex, v.detected);
+          }
         }
         
         // Apply beautify with smart rename
@@ -103,6 +113,7 @@ export default function Home() {
               options: { 
                 renameVariables: false,
                 removeBlankLines: true,
+                removeComments: autoBeautifyOptions.removeComments,
                 indentSize: 2,
                 useTabs: false
               } 
@@ -141,8 +152,7 @@ export default function Home() {
     } else {
       setIsLoading(true);
       try {
-        const endpoint = mode === "beautify" ? "/beautify" : "/minify";
-        const response = await fetch(endpoint, {
+        const response = await fetch("/minify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code: inputCode, options: { ...options, ...formatting } }),
@@ -152,10 +162,8 @@ export default function Home() {
         if (response.ok) {
           setOutputCode(data.result);
           toast({
-            title: `${mode === "beautify" ? "Beautified" : "Minified"} Successfully!`,
-            description: mode === "minify"
-              ? `Reduced by ${Math.round((1 - data.result.length / inputCode.length) * 100)}%`
-              : `Formatted ${inputCode.split('\n').length} lines`,
+            title: "Minified Successfully!",
+            description: `Reduced by ${Math.round((1 - data.result.length / inputCode.length) * 100)}%`,
           });
         } else {
           toast({ title: "Error", description: data.error, variant: "destructive" });
@@ -182,7 +190,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = mode === "beautify" ? "formatted.lua" : mode === "minify" ? "minified.lua" : "renamed.lua";
+    a.download = mode === "minify" ? "minified.lua" : "autobeautified.lua";
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: `Downloaded file` });
@@ -216,12 +224,11 @@ export default function Home() {
     visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100 } },
   };
 
-  const beautifyOpts = [
-    { id: "renameVariables", label: "Rename Variables", desc: "Shorten variable names" },
-    { id: "smartRename", label: "Smart Rename", desc: "Semantic naming (restore minified vars)" },
-    { id: "normalizeQuotes", label: "Normalize Quotes", desc: "Convert to double quotes" },
-    { id: "sortTableFields", label: "Sort Table Fields", desc: "Alphabetically sort fields" },
-    { id: "removeBlankLines", label: "Remove Blank Lines", desc: "Compress empty lines" },
+  const autoBeautifyOpts = [
+    { id: "removeComments", label: "Remove Comments", desc: "Strip comment lines" },
+    { id: "removePrints", label: "Remove Prints/Warns", desc: "Strip print() and warn() calls" },
+    { id: "solveMath", label: "Solve Math", desc: "Pre-calculate expressions" },
+    { id: "smartRename", label: "Smart Rename", desc: "Rename variables semantically" },
   ];
 
   const minifyOpts = [
@@ -236,7 +243,7 @@ export default function Home() {
     { id: "compressStrings", label: "Compress Strings", desc: "Deduplicate string literals" },
   ];
 
-  const activeOpts = mode === "beautify" ? beautifyOpts : minifyOpts;
+  const activeOpts = mode === "autobeautify" ? autoBeautifyOpts : minifyOpts;
 
   return (
     <motion.div className="min-h-screen bg-background" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
@@ -284,12 +291,8 @@ export default function Home() {
         <motion.div variants={containerVariants} initial="hidden" animate="visible">
           <motion.div variants={itemVariants} className="mb-6">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-              <Tabs value={mode} onValueChange={(v) => { setMode(v as "beautify" | "minify" | "autobeautify"); setDetectedVars([]); }} className="w-full sm:w-auto">
-                <TabsList className="grid w-full sm:w-auto grid-cols-3">
-                  <TabsTrigger value="beautify" className="gap-2">
-                    <Maximize2 className="h-4 w-4" />
-                    Beautify
-                  </TabsTrigger>
+              <Tabs value={mode} onValueChange={(v) => { setMode(v as "minify" | "autobeautify"); setDetectedVars([]); }} className="w-full sm:w-auto">
+                <TabsList className="grid w-full sm:w-auto grid-cols-2">
                   <TabsTrigger value="minify" className="gap-2">
                     <Minimize2 className="h-4 w-4" />
                     Minify
@@ -312,14 +315,14 @@ export default function Home() {
           </motion.div>
 
           <AnimatePresence>
-            {showAdvanced && mode !== "autobeautify" && (
+            {showAdvanced && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
                 <Card>
                   <CardContent className="pt-6">
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {activeOpts.map((opt) => (
                         <motion.div key={opt.id} className="flex items-start space-x-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50" whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
-                          <Checkbox id={opt.id} checked={options[opt.id as keyof typeof options]} disabled={opt.id === "smartRename" && !options.renameVariables} onCheckedChange={(checked) => setOptions({ ...options, [opt.id]: !!checked })} data-testid={`checkbox-${opt.id}`} />
+                          <Checkbox id={opt.id} checked={mode === "autobeautify" ? autoBeautifyOptions[opt.id as keyof typeof autoBeautifyOptions] : options[opt.id as keyof typeof options]} disabled={opt.id === "smartRename" && !options.renameVariables} onCheckedChange={(checked) => mode === "autobeautify" ? setAutoBeautifyOptions({ ...autoBeautifyOptions, [opt.id]: !!checked }) : setOptions({ ...options, [opt.id]: !!checked })} data-testid={`checkbox-${opt.id}`} />
                           <div className="space-y-1">
                             <Label htmlFor={opt.id} className="cursor-pointer font-medium text-sm">
                               {opt.label}
@@ -328,43 +331,26 @@ export default function Home() {
                           </div>
                         </motion.div>
                       ))}
-
-                      {mode === "beautify" && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:col-span-2 lg:col-span-3">
-                          <Label className="font-medium">Indent Size: {formatting.indentSize} spaces</Label>
-                        </motion.div>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
               </motion.div>
             )}
 
-            {showAdvanced && mode === "autobeautify" && (
+            {showAdvanced && mode === "autobeautify" && detectedVars.length > 0 && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
                 <Card>
-                  <CardContent className="pt-6 space-y-4">
-                    <div className="space-y-2 text-sm text-muted-foreground">
-                      <p className="font-semibold text-foreground">AutoBeautify Features:</p>
-                      <ul className="list-disc list-inside space-y-1">
-                        <li>Smart variable renaming based on assignments</li>
-                        <li>Automatically solves math expressions (5+3 → 8)</li>
-                        <li>Detects and beautifies functions</li>
-                        <li>Handles Instance.new, game:GetService, and more</li>
-                      </ul>
+                  <CardContent className="pt-6">
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      <Label className="font-medium text-sm">Detected Variables & Functions:</Label>
+                      {detectedVars.map((v) => (
+                        <div key={v.old} className="flex gap-2 items-center text-sm p-2 bg-muted/30 rounded">
+                          <span className="font-mono min-w-24">{v.old}</span>
+                          <span className="text-muted-foreground">→</span>
+                          <span className="font-semibold text-primary">{v.detected}</span>
+                        </div>
+                      ))}
                     </div>
-                    {detectedVars.length > 0 && (
-                      <div className="space-y-2 max-h-60 overflow-y-auto">
-                        <Label className="font-medium text-sm">Detected Variables & Functions:</Label>
-                        {detectedVars.map((v) => (
-                          <div key={v.old} className="flex gap-2 items-center text-sm p-2 bg-muted/30 rounded">
-                            <span className="font-mono min-w-24">{v.old}</span>
-                            <span className="text-muted-foreground">→</span>
-                            <span className="font-semibold text-primary">{v.detected}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               </motion.div>
@@ -425,8 +411,8 @@ export default function Home() {
                   </motion.div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {mode === "beautify" ? <Maximize2 className="h-5 w-5" /> : mode === "minify" ? <Minimize2 className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
-                    {mode === "beautify" ? "Beautify" : mode === "minify" ? "Minify" : "AutoBeautify"}
+                    {mode === "minify" ? <Minimize2 className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
+                    {mode === "minify" ? "Minify" : "AutoBeautify"}
                   </div>
                 )}
               </Button>
