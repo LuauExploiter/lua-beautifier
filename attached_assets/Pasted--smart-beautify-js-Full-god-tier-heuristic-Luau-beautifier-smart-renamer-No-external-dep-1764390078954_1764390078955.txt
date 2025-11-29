@@ -1,0 +1,503 @@
+// smart_beautify.js
+// Full "god-tier" heuristic Luau beautifier + smart renamer
+// No external deps. Works in Node or browser (with minor I/O adaptions).
+
+/*
+API:
+  const out = processLuau(sourceCode, options)
+  options = {
+    removeComments: true|false,
+    removePrints: true|false,
+    solveMath: true|false,
+    renameVariables: true|false,
+    renameFunctions: true|false,
+    renameGlobals: true|false,
+    beautifyIndent: true|false
+  }
+*/
+
+function processLuau(src, options = {}) {
+  const defaults = {
+    removeComments: true,
+    removePrints: true,
+    solveMath: true,
+    renameVariables: true,
+    renameFunctions: true,
+    renameGlobals: true,
+    beautifyIndent: true
+  };
+  options = Object.assign({}, defaults, options);
+
+  // 1) Extract and mask strings & long brackets & comments to avoid accidental replacements
+  const maskData = maskStringsAndComments(src);
+  let working = maskData.masked;
+
+  // 2) Optional: remove prints/warns
+  if (options.removePrints) {
+    working = removePrintsWarns(working);
+  }
+
+  // 3) Optional: remove comments
+  if (options.removeComments) {
+    // comments already masked and removed in masking stage if opted; but mask stage returns comments too; here remove masked comment tokens
+    working = removeMaskedComments(working, maskData);
+  }
+
+  // 4) Solve math in RHS of simple assignments if requested
+  if (options.solveMath) {
+    working = solveMathAssignments(working);
+  }
+
+  // 5) Analyze declarations/usages to infer names
+  const analysis = analyzeCode(working);
+
+  // 6) Build rename map
+  const renameMap = buildRenameMap(analysis, options);
+
+  // 7) Apply renames safely (only in unmasked zones)
+  let renamed = applyRenamesMaskSafe(working, renameMap, maskData);
+
+  // 8) Beautify indentation
+  if (options.beautifyIndent) renamed = beautifyIndentation(renamed);
+
+  // 9) Restore strings/comments into text
+  const restored = restoreMasked(renamed, maskData);
+
+  return restored;
+}
+
+// -------------------- Masking utils --------------------
+function maskStringsAndComments(src) {
+  // We'll replace strings, long brackets, and comments with placeholders,
+  // and keep arrays of originals to restore later.
+  const parts = [];
+  let out = '';
+  let i = 0;
+  const L = src.length;
+  while (i < L) {
+    const ch = src[i];
+
+    // long bracket [[ ... ]]
+    if (ch === '[' && src[i+1] === '[') {
+      let j = i + 2;
+      while (j < L && !(src[j] === ']' && src[j+1] === ']')) j++;
+      let slice = src.slice(i, Math.min(j+2, L));
+      parts.push({type:'longstr', text: slice});
+      out += `__MASK_LONGSTR_${parts.length-1}__`;
+      i = Math.min(j+2, L);
+      continue;
+    }
+
+    // string ' or "
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      let j = i+1;
+      let acc = ch;
+      while (j < L) {
+        const c = src[j];
+        acc += c;
+        if (c === '\\') { // escape
+          acc += (src[j+1]||''); j += 2; continue;
+        }
+        if (c === q) { j++; break; }
+        j++;
+      }
+      parts.push({type:'str', text: acc});
+      out += `__MASK_STR_${parts.length-1}__`;
+      i = j;
+      continue;
+    }
+
+    // comment: --[[...]] block
+    if (src[i] === '-' && src[i+1] === '-') {
+      if (src[i+2] === '[' && src[i+3] === '[') {
+        // block comment
+        let j = i+4;
+        while (j < L && !(src[j] === ']' && src[j+1] === ']')) j++;
+        let slice = src.slice(i, Math.min(j+2, L));
+        parts.push({type:'comment', text: slice});
+        out += `__MASK_COMMENT_${parts.length-1}__`;
+        i = Math.min(j+2, L);
+        continue;
+      } else {
+        // line comment until newline
+        let j = i+2;
+        while (j < L && src[j] !== '\n') j++;
+        let slice = src.slice(i, j);
+        parts.push({type:'comment', text: slice});
+        out += `__MASK_COMMENT_${parts.length-1}__`;
+        i = j;
+        continue;
+      }
+    }
+
+    // default
+    out += ch;
+    i++;
+  }
+
+  return {masked: out, parts};
+}
+
+function restoreMasked(maskedText, maskData) {
+  // replace placeholders with original parts (strings, comments)
+  let text = maskedText;
+  maskData.parts.forEach((p, idx) => {
+    const key = `__MASK_${(p.type === 'str' ? 'STR' : p.type === 'longstr' ? 'LONGSTR' : 'COMMENT')}_${idx}__`;
+    // global replace
+    text = text.split(key).join(p.text);
+  });
+  return text;
+}
+
+function removeMaskedComments(working, maskData) {
+  // Remove masked comments placeholders
+  let out = working;
+  maskData.parts.forEach((p, idx) => {
+    if (p.type === 'comment') {
+      const key = `__MASK_COMMENT_${idx}__`;
+      out = out.split(key).join('');
+    }
+  });
+  return out;
+}
+
+// -------------------- Print/warn removal --------------------
+function removePrintsWarns(code) {
+  // naive but safe removal: remove print(...) and warn(...), keeping surrounding whitespace
+  return code.replace(/\b(print|warn)\s*\([^()]*\)/g, '');
+}
+
+// -------------------- Math solver --------------------
+function solveMathAssignments(code) {
+  // find assignments like: local x = <expr>
+  // only solve RHS that contain only numbers, spaces, parentheses and + - * / % .
+  const lines = code.split('\n');
+  for (let i=0;i<lines.length;i++) {
+    const line = lines[i];
+    const m = line.match(/^(.*?)=\s*(.+)$/);
+    if (!m) continue;
+    const lhs = m[1];
+    let rhs = m[2].trim();
+    // strip trailing comments placeholders or semicolons
+    rhs = rhs.replace(/;$/, '').trim();
+    // We only evaluate if no letter or underscore appears (so no variables)
+    if (/^[0-9\s\.\+\-\*\/%\(\)]+$/.test(rhs)) {
+      try {
+        // use Function to evaluate safely: but restrict via regex above
+        const val = Function(`"use strict"; return (${rhs});`)();
+        lines[i] = `${lhs} = ${Number.isFinite(val) && Number.isInteger(val) ? val : val}`;
+      } catch(e) {
+        // skip
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+// -------------------- Code analysis --------------------
+function analyzeCode(code) {
+  // gather:
+  // - local declarations: local NAME = RHS
+  // - global assignments: NAME = RHS (top-level)
+  // - function defs: function NAME(...) or local function NAME(...)
+  // - property usages: NAME.Property
+  // - call patterns: :Connect, GetService, Instance.new, WaitForChild, FindFirstChild
+  const locals = []; // {name, rhs, lineNo}
+  const globals = [];
+  const functions = []; // {name, args, bodyStartLine, bodyEndLine, rawBody}
+  const propertyUsages = {}; // name -> set(properties)
+  const lines = code.split('\n');
+
+  // Collect function blocks (simple stack)
+  const funcStack = [];
+  for (let li=0; li<lines.length; li++) {
+    const line = lines[li];
+    // function header
+    let fm = line.match(/\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/);
+    let localFuncMatch = line.match(/\blocal\s+function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/);
+    if (localFuncMatch) fm = localFuncMatch;
+    if (fm) {
+      const fname = fm[1];
+      funcStack.push({name: fname, start: li, args: fm[2] || '', lines: []});
+      continue;
+    }
+    // end
+    if (/\bend\b/.test(line) && funcStack.length) {
+      const f = funcStack.pop();
+      f.end = li;
+      f.rawBody = lines.slice(f.start+1, f.end).join('\n');
+      functions.push(f);
+      continue;
+    }
+    // while in a function, push to its content
+    if (funcStack.length) {
+      funcStack[funcStack.length-1].lines.push(line);
+    }
+  }
+
+  // local declarations & globals & property usages
+  for (let li=0; li<lines.length; li++) {
+    const line = lines[li];
+
+    // local declarations (handle multiple: local a, b = ...)
+    let m = line.match(/\blocal\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=\s*(.+))?/);
+    if (m) {
+      const names = m[1].split(/\s*,\s*/);
+      const rhs = m[2] ? m[2].trim() : '';
+      for (const n of names) {
+        locals.push({name: n, rhs, lineNo: li});
+      }
+    }
+
+    // globals
+    let gm = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+    if (gm) {
+      const name = gm[1];
+      const rhs = gm[2].trim();
+      globals.push({name, rhs, lineNo: li});
+    }
+
+    // property usage patterns: obj.Prop or obj:Method
+    const propRegex = /([A-Za-z_][A-Za-z0-9_]*)\s*(?:\.|:)\s*([A-Za-z_][A-Za-z0-9_]*)/g;
+    let p;
+    while ((p = propRegex.exec(line)) !== null) {
+      const obj = p[1], prop = p[2];
+      propertyUsages[obj] = propertyUsages[obj] || new Set();
+      propertyUsages[obj].add(prop);
+    }
+  }
+
+  return {locals, globals, functions, propertyUsages, lines};
+}
+
+// -------------------- Rename map builder --------------------
+function buildRenameMap(analysis, options) {
+  const map = {}; // oldName -> newName
+  const usedNames = new Set();
+
+  // helper
+  function uniqueName(base) {
+    let name = base;
+    let i = 1;
+    while (usedNames.has(name)) {
+      name = base + i;
+      i++;
+    }
+    usedNames.add(name);
+    return name;
+  }
+
+  // infer name from RHS
+  function inferFromRHS(rhs, nameHintFromProps) {
+    if (!rhs) return null;
+    // game:GetService("X")
+    let m = rhs.match(/game:GetService\(["']([^"']+)["']\)/);
+    if (m) return m[1];
+
+    // game.Players or workspace.Foo
+    m = rhs.match(/([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)$/);
+    if (m) {
+      const last = m[1].split('.').pop();
+      if (/^[A-Za-z_]\w*$/.test(last)) return last;
+    }
+
+    // Instance.new("Class")
+    m = rhs.match(/Instance\.new\(["']([^"']+)["']/);
+    if (m) {
+      const cls = m[1];
+      // map common UI classes to readable names
+      const uiMap = {
+        ScreenGui:'MainGui', Frame:'MainFrame', TextLabel:'TitleLabel', TextButton:'ActionButton',
+        ImageButton:'ImageButton', TextBox:'TextBox', UIStroke:'OutlineStroke', UICorner:'FrameCorners',
+        ScrollingFrame:'ScrollingFrame', ViewportFrame:'ViewportFrame'
+      };
+      if (uiMap[cls]) return uiMap[cls];
+      return cls;
+    }
+
+    // Vector3.new / UDim2.new
+    if (/Vector3\.new/.test(rhs)) return 'Vector3Value';
+    if (/UDim2\.new/.test(rhs)) return 'UDim2Value';
+
+    // boolean literal
+    if (/\b(true|false)\b/.test(rhs)) return 'Enabled';
+
+    // numeric literal
+    if (/^\d+(\.\d+)?$/.test(rhs)) return 'Number';
+
+    // fallback to properties used
+    if (nameHintFromProps && nameHintFromProps.size) {
+      // pick strongest property: LocalPlayer, Character, HumanoidRootPart, Animator, Camera
+      const props = Array.from(nameHintFromProps);
+      const prefer = ['LocalPlayer','Character','Humanoid','HumanoidRootPart','CurrentCamera','Animator','Position','Velocity','Size'];
+      for (const p of prefer) if (props.includes(p)) return p;
+      return props[0];
+    }
+
+    return null;
+  }
+
+  // 1) locals first
+  for (const loc of analysis.locals) {
+    const old = loc.name;
+    if (map[old]) continue;
+    const props = analysis.propertyUsages[old];
+    const inferred = inferFromRHS(loc.rhs, props);
+    if (inferred) {
+      const candidate = uniqueName(inferred);
+      map[old] = candidate;
+      continue;
+    }
+    // fallback: if old looks obfuscated like v12 or vu12
+    let fallback = null;
+    let m = old.match(/^(v|vu|_v)(\d+)/i);
+    if (m) fallback = 'var' + m[2];
+    else if (/^_[a-z]/.test(old)) fallback = old.replace(/^_+/, 'tmp_');
+    else fallback = old; // leave as-is if already readable
+    map[old] = uniqueName(fallback);
+  }
+
+  // 2) globals
+  for (const g of analysis.globals) {
+    const old = g.name;
+    if (map[old]) continue;
+    const inferred = inferFromRHS(g.rhs, analysis.propertyUsages[old]);
+    if (inferred) {
+      map[old] = uniqueName(inferred);
+    } else {
+      map[old] = uniqueName(old);
+    }
+  }
+
+  // 3) functions: use function body heuristics
+  for (const f of analysis.functions) {
+    const old = f.name;
+    if (map[old]) continue;
+    // heuristics on raw body
+    const body = f.rawBody || f.lines.join('\n') || '';
+    // createX if it contains Instance.new("Class")
+    let mm = body.match(/Instance\.new\(["']([^"']+)["']/);
+    if (mm) {
+      const cls = mm[1];
+      const candidate = 'create' + capitalize(cls);
+      map[old] = uniqueName(candidate);
+      continue;
+    }
+    if (/:\s*Connect\b/.test(body) || /\.Connect\b/.test(body) || /Connect\(/.test(body)) {
+      map[old] = uniqueName('onEvent');
+      continue;
+    }
+    if (/Heartbeat|RenderStepped|Stepped/.test(body)) {
+      map[old] = uniqueName('onHeartbeat');
+      continue;
+    }
+    // fallback
+    map[old] = uniqueName('func');
+  }
+
+  // ensure no collisions with built-ins/keywords (a small set)
+  const keywords = new Set(['local','function','end','if','then','else','true','false','nil','return','for','while','do','repeat','until']);
+  for (const k in map) {
+    if (keywords.has(map[k])) {
+      map[k] = '_' + map[k];
+    }
+  }
+
+  // conservative: don't rename common identifiers like "game", "script", "workspace", "require"
+  const protected = new Set(['game','workspace','script','require','print','warn','Instance','UDim2','Vector3','Color3']);
+  for (const k of protected) usedNames.add(k);
+
+  return map;
+}
+
+// -------------------- Safe apply renames with masking --------------------
+function applyRenamesMaskSafe(masked, renameMap, maskData) {
+  // We must replace only in code regions (placeholders count as single token),
+  // avoid replacing inside masked strings/comments placeholders.
+  // Approach: split masked by mask placeholders and only replace in non-placeholder segments.
+
+  // Build regex that matches any placeholder: __MASK_(STR|LONGSTR|COMMENT)_{idx}__
+  // We'll split on those tokens.
+  const placeholderRegex = /__MASK_(STR|LONGSTR|COMMENT)_(\d+)__/g;
+
+  let out = '';
+  let lastIndex = 0;
+  let m;
+  while ((m = placeholderRegex.exec(masked)) !== null) {
+    const idxStart = m.index;
+    const token = m[0];
+    // segment before token: replace identifiers
+    const before = masked.slice(lastIndex, idxStart);
+    out += replaceIdentifiersInSegment(before, renameMap);
+    // append token as-is (we'll restore original later)
+    out += token;
+    lastIndex = idxStart + token.length;
+  }
+  // tail
+  out += replaceIdentifiersInSegment(masked.slice(lastIndex), renameMap);
+  return out;
+}
+
+function replaceIdentifiersInSegment(seg, renameMap) {
+  if (!seg) return seg;
+  // To avoid partial replacements inside longer identifiers, we replace using word boundary regex
+  // but Lua identifiers include letters, digits, underscore.
+  // Build combined regex
+  const keys = Object.keys(renameMap).sort((a,b)=>b.length-a.length); // longest first
+  if (keys.length === 0) return seg;
+  // Escape keys
+  const esc = keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
+  const regex = new RegExp(`\\b(${esc.join('|')})\\b`, 'g');
+  const replaced = seg.replace(regex, (m, p1) => renameMap[p1] || m);
+  return replaced;
+}
+
+// -------------------- Indentation beautifier --------------------
+function beautifyIndentation(code) {
+  const lines = code.split('\n');
+  const out = [];
+  let indent = 0;
+  const openers = /\b(function|then|do|repeat|for|while)\b/;
+  const closers = /^\s*(end|until)\b/;
+  for (let line of lines) {
+    const stripped = line.trim();
+    if (stripped === '') { out.push(''); continue; }
+    if (closers.test(stripped)) indent = Math.max(0, indent-1);
+    out.push('    '.repeat(indent) + stripped);
+    if (openers.test(stripped) && !/return\b/.test(stripped)) {
+      indent++;
+    }
+  }
+  return out.join('\n');
+}
+
+// -------------------- Utilities --------------------
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// -------------------- Export / CLI usage --------------------
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { processLuau };
+  // If run directly with Node, simple CLI
+  if (require.main === module) {
+    const fs = require('fs');
+    const infile = process.argv[2];
+    if (!infile) {
+      console.log('Usage: node smart_beautify.js <input.lua> [output.lua]');
+      process.exit(1);
+    }
+    const src = fs.readFileSync(infile, 'utf8');
+    const res = processLuau(src, {
+      removeComments: true,
+      removePrints: true,
+      solveMath: true,
+      renameVariables: true,
+      renameFunctions: true,
+      renameGlobals: true,
+      beautifyIndent: true
+    });
+    const outfn = process.argv[3] || (infile.replace(/\.(lua|luau|txt)$/i,'') + '.beautified.lua');
+    fs.writeFileSync(outfn, res, 'utf8');
+    console.log('Wrote', outfn);
+  }
+}
