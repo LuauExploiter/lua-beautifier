@@ -118,17 +118,23 @@ export async function registerRoutes(
         }
       }
 
-      // Also detect function definitions
-      const funcRegex = /\blocal\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+      // Also detect function definitions with semantic analysis
+      const funcRegex = /\blocal\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)[\s\n]*([\s\S]*?)(?=\bend\b|$)/g;
       let fm;
       while ((fm = funcRegex.exec(code)) !== null) {
         const funcName = fm[1];
-        if (typeCounters['Function'] !== undefined) {
-          typeCounters['Function']++;
-          variables.push({ old: funcName, detected: `Function${typeCounters['Function']}` });
+        const args = fm[2] || "";
+        const body = fm[3] || "";
+        
+        let semanticFuncName = analyzeFunction(funcName, args, body);
+        
+        // Count duplicates
+        if (typeCounters[semanticFuncName] !== undefined) {
+          typeCounters[semanticFuncName]++;
+          variables.push({ old: funcName, detected: `${semanticFuncName}${typeCounters[semanticFuncName]}` });
         } else {
-          typeCounters['Function'] = 1;
-          variables.push({ old: funcName, detected: funcName });
+          typeCounters[semanticFuncName] = 1;
+          variables.push({ old: funcName, detected: semanticFuncName });
         }
       }
 
@@ -189,6 +195,78 @@ export async function registerRoutes(
 
     // Default to Var
     return 'Var';
+  }
+
+  // Analyze function body and determine what it does
+  function analyzeFunction(funcName: string, args: string, body: string): string {
+    // Check for return statements indicating check/validation functions
+    if (/\breturn\s+(true|false|[^,\n]*==|[^,\n]*~=|[^,\n]*>|[^,\n]*<)/.test(body)) {
+      if (body.includes('==') || body.includes('~=')) return 'Check';
+      if (body.includes('>=') || body.includes('<=') || body.includes('>') || body.includes('<')) return 'Compare';
+      return 'Check';
+    }
+
+    // Check for functions that remove/destroy
+    if (/\b(Destroy|Remove|Delete)\s*\(/.test(body)) {
+      return 'Remove';
+    }
+
+    // Check for functions that create/new
+    if (/\bInstance\.new\s*\(|\.Parent\s*=|\bcreate/.test(body)) {
+      return 'Create';
+    }
+
+    // Check for functions that handle events
+    if (/\bConnect\s*\(|\..*:Connect/.test(body)) {
+      return 'Handle';
+    }
+
+    // Check for functions that filter/search
+    if (/\bfor\b.*\bin\b.*\bif\b/.test(body)) {
+      return 'Filter';
+    }
+
+    // Check for functions that loop through children
+    if (/\bGetChildren\b|for.*in.*GetDescendants/.test(body)) {
+      return 'Iterate';
+    }
+
+    // Check for update/refresh functions
+    if (/\bupdate|refresh|reload/.test(body.toLowerCase())) {
+      return 'Update';
+    }
+
+    // Check for render/display functions
+    if (/\bRender|Display|Draw|Print|Show|UI/.test(body)) {
+      return 'Render';
+    }
+
+    // Check for initialization functions
+    if (/\bInit|Setup|Config/.test(body)) {
+      return 'Init';
+    }
+
+    // Check for get/fetch functions
+    if (/\breturn\s+\w+\./.test(body) || /\breturn\s+[\w\[\]\.]+/.test(body)) {
+      return 'Get';
+    }
+
+    // Check for set functions
+    if (/\..*\s*=\s*/.test(body) && !body.includes('local')) {
+      return 'Set';
+    }
+
+    // Check for parse/process functions
+    if (/\bsplit|match|parse|process/.test(body.toLowerCase())) {
+      return 'Parse';
+    }
+
+    // Default based on arg count
+    if (args && args.trim().length > 0) {
+      return 'Process';
+    }
+
+    return 'Handler';
   }
 
   return httpServer;
