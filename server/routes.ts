@@ -44,7 +44,12 @@ export async function registerRoutes(
 
       // Apply post-processing options
       if (options?.removeComments) {
-        result = result.replace(/--\[\[[\s\S]*?\]\]--|--[^\n]*/g, '');
+        // Remove block comments first
+        result = result.replace(/--\[\[[\s\S]*?\]\]/g, '');
+        // Remove all single-line comments (inline and full-line)
+        result = result.replace(/--[^\n]*/g, '');
+        // Clean up resulting blank lines
+        result = result.replace(/\n\s*\n/g, '\n');
       }
       if (options?.removePrints) {
         // Remove print/warn statements, handling nested parentheses
@@ -106,7 +111,12 @@ export async function registerRoutes(
 
       // Apply post-processing optimizations
       if (options?.removeComments) {
-        result = result.replace(/--\[\[[\s\S]*?\]\]--|--[^\n]*/g, '');
+        // Remove block comments first
+        result = result.replace(/--\[\[[\s\S]*?\]\]/g, '');
+        // Remove all single-line comments (inline and full-line)
+        result = result.replace(/--[^\n]*/g, '');
+        // Clean up resulting blank lines
+        result = result.replace(/\n\s*\n/g, '\n');
       }
       if (options?.removePrints) {
         // Remove print/warn statements, handling nested parentheses
@@ -261,9 +271,9 @@ export async function registerRoutes(
       if (m) return m[1];
     }
 
-    // Property access (game.X, workspace.X, script.X, require.X)
-    const propMatch = rhs.match(/(game|workspace|script|require)\.([A-Za-z_]\w*)/);
-    if (propMatch) return propMatch[2];
+    // Property access from ANY variable (e.g., v.LocalPlayer, player.Character)
+    const propMatch = rhs.match(/\.([A-Za-z_]\w*)(?:\s|$|[^a-zA-Z0-9_])/);
+    if (propMatch) return propMatch[1];
 
     // Table constructor
     if (rhs.startsWith('{')) return 'Table';
