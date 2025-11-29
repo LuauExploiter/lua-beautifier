@@ -150,14 +150,6 @@ export async function registerRoutes(
       let trimmedCode = code.trim();
       if (!trimmedCode) return res.status(400).json({ error: 'Code is empty' });
 
-      // First, build a map of variable values for math substitution
-      const varValues: { [key: string]: string } = {};
-      const varValueRegex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(\d+(?:\.\d+)?)\s*(?=\n|;|$|--)/g;
-      let vm;
-      while ((vm = varValueRegex.exec(trimmedCode)) !== null) {
-        varValues[vm[1]] = vm[2];
-      }
-
       const variables: Array<{ old: string; detected: string }> = [];
       const typeCounters: { [key: string]: number } = {};
 
@@ -199,37 +191,7 @@ export async function registerRoutes(
         }
       }
 
-      // Solve math: substitute variables FIRST, then solve expressions
-      let solvedCode = trimmedCode;
-      
-      // Replace variable names with their values in expressions
-      for (const [varName, value] of Object.entries(varValues)) {
-        const varRegex = new RegExp(`\\b${varName}\\b`, 'g');
-        solvedCode = solvedCode.replace(varRegex, value);
-      }
-
-      // Now solve math expressions with substituted values
-      const mathRegex = /(\d+(?:\.\d+)?)\s*([+\-*/%])\s*(\d+(?:\.\d+)?)/g;
-      solvedCode = solvedCode.replace(mathRegex, (match: string, a: string, op: string, b: string): string => {
-        try {
-          const numA = parseFloat(a);
-          const numB = parseFloat(b);
-          let result;
-          switch (op) {
-            case '+': result = numA + numB; break;
-            case '-': result = numA - numB; break;
-            case '*': result = numA * numB; break;
-            case '/': result = numA / numB; break;
-            case '%': result = numA % numB; break;
-            default: return match;
-          }
-          return op === '/' ? result.toString() : Math.floor(result).toString();
-        } catch {
-          return match;
-        }
-      });
-
-      res.json({ variables, solvedCode });
+      res.json({ variables });
     } catch (err) {
       console.error('Detect vars error:', err);
       res.status(500).json({ error: 'Detection failed' });

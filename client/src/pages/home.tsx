@@ -40,7 +40,6 @@ export default function Home() {
   const [options, setOptions] = useState({
     renameVariables: false,
     renameGlobals: false,
-    solveMath: false,
     removeWhitespace: true,
     removeComments: true,
     convertNumberFormats: true,
@@ -54,7 +53,6 @@ export default function Home() {
   const [beautifyOptions, setBeautifyOptions] = useState({
     removeComments: false,
     removePrints: false,
-    solveMath: false,
     renameVariables: true,
   });
 
