@@ -7,14 +7,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
   Copy, Wand2, Code2, Moon, Sun, Download, Upload, Trash2, RotateCcw,
-  Settings2, FileCode, Sparkles, CheckCircle2, ChevronDown, Minimize2, Maximize2,
+  Settings2, FileCode, Sparkles, CheckCircle2, ChevronDown, Minimize2, Maximize2, Pencil,
 } from "lucide-react";
 
 const DEFAULT_CODE = `-- Paste your messy Lua code here!
@@ -31,11 +29,16 @@ export default function Home() {
   const [outputCode, setOutputCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [mode, setMode] = useState<"beautify" | "minify" | "rename">("minify");
+  const [mode, setMode] = useState<"beautify" | "minify" | "manual">("minify");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
-  const [renameMap, setRenameMap] = useState<{ [key: string]: string }>({});
+  
+  // Manual rename states
+  const [detectedVars, setDetectedVars] = useState<Array<{ old: string; detected: string }>>([]);
+  const [customNames, setCustomNames] = useState<{ [key: string]: string }>({});
+  const [namePattern, setNamePattern] = useState("Frame");
+  const [patternCounter, setPatternCounter] = useState(1);
 
   const [options, setOptions] = useState({
     renameVariables: false,
@@ -67,6 +70,50 @@ export default function Home() {
     }
   }, []);
 
+  const detectVariables = async () => {
+    try {
+      const response = await fetch("/api/detect-vars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: inputCode }),
+      });
+      const data = await response.json();
+      if (data.variables) {
+        setDetectedVars(data.variables);
+        const initial: { [key: string]: string } = {};
+        data.variables.forEach((v: any, idx: number) => {
+          initial[v.old] = `${namePattern}${idx + 1}`;
+        });
+        setCustomNames(initial);
+        toast({ title: "Variables Detected!", description: `Found ${data.variables.length} variables` });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to detect variables", variant: "destructive" });
+    }
+  };
+
+  const applyCustomRenames = async () => {
+    if (!inputCode.trim()) {
+      toast({ title: "Error", description: "Please enter code", variant: "destructive" });
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      let result = inputCode;
+      for (const [oldName, newName] of Object.entries(customNames)) {
+        const regex = new RegExp(`\\b${oldName}\\b`, "g");
+        result = result.replace(regex, newName);
+      }
+      setOutputCode(result);
+      toast({ title: "Manual Renaming Complete!", description: "Applied custom names successfully" });
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to apply renames", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleProcess = async () => {
     if (!inputCode.trim()) {
       toast({ title: "Error", description: "Please enter some Lua code", variant: "destructive" });
@@ -77,23 +124,18 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      let endpoint = mode === "beautify" ? "/beautify" : mode === "minify" ? "/minify" : "/rename";
-      const body = mode === "rename" 
-        ? { code: inputCode, renameMap } 
-        : { code: inputCode, options: { ...options, ...formatting } };
-      
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      if (mode === "manual") {
+        await detectVariables();
+      } else {
+        const endpoint = mode === "beautify" ? "/beautify" : "/minify";
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: inputCode, options: { ...options, ...formatting } }),
+        });
 
-      const data = await response.json();
-      if (response.ok) {
-        if (mode === "rename" && data.varMap) {
-          setRenameMap(data.varMap);
-          toast({ title: "Variables Detected!", description: `Found ${Object.keys(data.varMap).length} variables to rename` });
-        } else {
+        const data = await response.json();
+        if (response.ok) {
           setOutputCode(data.result);
           toast({
             title: `${mode === "beautify" ? "Beautified" : "Minified"} Successfully!`,
@@ -101,9 +143,9 @@ export default function Home() {
               ? `Reduced by ${Math.round((1 - data.result.length / inputCode.length) * 100)}%`
               : `Formatted ${inputCode.split('\n').length} lines`,
           });
+        } else {
+          toast({ title: "Error", description: data.error, variant: "destructive" });
         }
-      } else {
-        toast({ title: "Error", description: data.error, variant: "destructive" });
       }
     } catch (err) {
       toast({ title: "Connection Error", description: "Failed to connect", variant: "destructive" });
@@ -126,10 +168,10 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = mode === "beautify" ? "formatted.lua" : "minified.lua";
+    a.download = mode === "beautify" ? "formatted.lua" : mode === "minify" ? "minified.lua" : "renamed.lua";
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: `Downloaded ${mode === "beautify" ? "formatted" : "minified"}.lua` });
+    toast({ title: `Downloaded file` });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -228,7 +270,7 @@ export default function Home() {
         <motion.div variants={containerVariants} initial="hidden" animate="visible">
           <motion.div variants={itemVariants} className="mb-6">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-              <Tabs value={mode} onValueChange={(v) => setMode(v as "beautify" | "minify" | "rename")} className="w-full sm:w-auto">
+              <Tabs value={mode} onValueChange={(v) => { setMode(v as "beautify" | "minify" | "manual"); setDetectedVars([]); }} className="w-full sm:w-auto">
                 <TabsList className="grid w-full sm:w-auto grid-cols-3">
                   <TabsTrigger value="beautify" className="gap-2">
                     <Maximize2 className="h-4 w-4" />
@@ -238,9 +280,9 @@ export default function Home() {
                     <Minimize2 className="h-4 w-4" />
                     Minify
                   </TabsTrigger>
-                  <TabsTrigger value="rename" className="gap-2">
-                    <Wand2 className="h-4 w-4" />
-                    Rename
+                  <TabsTrigger value="manual" className="gap-2">
+                    <Pencil className="h-4 w-4" />
+                    Manual
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -256,7 +298,7 @@ export default function Home() {
           </motion.div>
 
           <AnimatePresence>
-            {showAdvanced && (
+            {showAdvanced && mode !== "manual" && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
                 <Card>
                   <CardContent className="pt-6">
@@ -276,7 +318,6 @@ export default function Home() {
                       {mode === "beautify" && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:col-span-2 lg:col-span-3">
                           <Label className="font-medium">Indent Size: {formatting.indentSize} spaces</Label>
-                          <Slider value={[formatting.indentSize]} onValueChange={([val]) => setFormatting({ ...formatting, indentSize: val })} min={1} max={8} step={1} />
                         </motion.div>
                       )}
                     </div>
@@ -284,78 +325,96 @@ export default function Home() {
                 </Card>
               </motion.div>
             )}
+
+            {showAdvanced && mode === "manual" && (
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
+                <Card>
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="space-y-2">
+                      <Label className="font-medium">Naming Pattern</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={namePattern}
+                          onChange={(e) => setNamePattern(e.target.value)}
+                          placeholder="e.g., Frame, Signal, Var"
+                          className="flex-1"
+                          data-testid="input-pattern"
+                        />
+                        <span className="text-sm text-muted-foreground pt-2">will add 1, 2, 3...</span>
+                      </div>
+                    </div>
+
+                    {detectedVars.length > 0 && (
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        <Label className="font-medium text-sm">Custom Names:</Label>
+                        {detectedVars.map((v, idx) => (
+                          <div key={v.old} className="flex gap-2 items-center text-sm">
+                            <span className="font-mono min-w-20">{v.old}</span>
+                            <span className="text-muted-foreground">→</span>
+                            <Input
+                              value={customNames[v.old] || ""}
+                              onChange={(e) => setCustomNames({ ...customNames, [v.old]: e.target.value })}
+                              placeholder={`${namePattern}${idx + 1}`}
+                              className="flex-1 h-8"
+                              data-testid={`input-custom-${v.old}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
           </AnimatePresence>
 
-          {mode === "rename" ? (
+          <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card className="overflow-hidden">
-              <CardHeader>
-                <CardTitle className="text-lg">Manual Renamer - Customize Variable Names</CardTitle>
+              <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileCode className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Input</CardTitle>
+                </div>
+                <input type="file" accept=".lua,.txt" onChange={handleFileUpload} className="hidden" id="file-upload" />
+                <Button size="icon" variant="ghost" onClick={() => document.getElementById("file-upload")?.click()}>
+                  <Upload className="h-4 w-4" />
+                </Button>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {Object.keys(renameMap).length === 0 ? (
-                  <p className="text-muted-foreground text-sm">First, analyze your code to detect variables (click the Rename button below)</p>
-                ) : (
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {Object.entries(renameMap).map(([oldName, newName]) => (
-                      <motion.div key={oldName} className="flex gap-2 items-center p-3 bg-muted/30 rounded-lg" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
-                        <span className="font-mono text-sm text-muted-foreground min-w-20">{oldName}</span>
-                        <span className="text-xs text-muted-foreground">→</span>
-                        <input type="text" value={newName} onChange={(e) => setRenameMap({ ...renameMap, [oldName]: e.target.value })} className="flex-1 px-2 py-1 rounded border border-input bg-background text-sm" placeholder="New name" data-testid={`input-rename-${oldName}`} />
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
+              <CardContent className="p-0">
+                <motion.div className="h-[450px] border-t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+                  <Editor height="100%" defaultLanguage="lua" value={inputCode} onChange={(value) => setInputCode(value || "")} theme={darkMode ? "vs-dark" : "light"} options={{ minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on", padding: { top: 16, bottom: 16 } }} />
+                </motion.div>
               </CardContent>
             </Card>
-          ) : (
-            <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="overflow-hidden">
-                <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FileCode className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">Input</CardTitle>
-                  </div>
-                  <input type="file" accept=".lua,.txt" onChange={handleFileUpload} className="hidden" id="file-upload" />
-                  <Button size="icon" variant="ghost" onClick={() => document.getElementById("file-upload")?.click()}>
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <motion.div className="h-[450px] border-t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-                    <Editor height="100%" defaultLanguage="lua" value={inputCode} onChange={(value) => setInputCode(value || "")} theme={darkMode ? "vs-dark" : "light"} options={{ minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on", padding: { top: 16, bottom: 16 } }} />
-                  </motion.div>
-                </CardContent>
-              </Card>
 
-              <Card className="overflow-hidden">
-                <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">Output</CardTitle>
-                  </div>
-                  {outputCode && (
-                    <motion.div className="flex gap-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                      <Button size="icon" variant="ghost" onClick={downloadCode} data-testid="button-download">
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant={copied ? "default" : "ghost"} onClick={copyToClipboard}>
-                        {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      </Button>
-                    </motion.div>
-                  )}
-                </CardHeader>
-                <CardContent className="p-0">
-                  <motion.div className="h-[450px] border-t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
-                    <Editor height="100%" defaultLanguage="lua" value={outputCode || "// Output appears here..."} theme={darkMode ? "vs-dark" : "light"} options={{ readOnly: true, minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on", padding: { top: 16, bottom: 16 } }} />
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Output</CardTitle>
+                </div>
+                {outputCode && (
+                  <motion.div className="flex gap-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    <Button size="icon" variant="ghost" onClick={downloadCode} data-testid="button-download">
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant={copied ? "default" : "ghost"} onClick={copyToClipboard}>
+                      {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
                   </motion.div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
+                )}
+              </CardHeader>
+              <CardContent className="p-0">
+                <motion.div className="h-[450px] border-t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
+                  <Editor height="100%" defaultLanguage="lua" value={outputCode || "// Output appears here..."} theme={darkMode ? "vs-dark" : "light"} options={{ readOnly: mode !== "manual", minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on", padding: { top: 16, bottom: 16 } }} onChange={mode === "manual" ? (value) => setOutputCode(value || "") : undefined} />
+                </motion.div>
+              </CardContent>
+            </Card>
+          </motion.div>
 
           <motion.div variants={itemVariants} className="flex flex-col items-center gap-4 mt-8">
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-              <Button size="lg" onClick={handleProcess} disabled={isLoading || !inputCode.trim()} className="px-16 py-6 text-lg font-semibold">
+              <Button size="lg" onClick={mode === "manual" ? (detectedVars.length > 0 ? applyCustomRenames : handleProcess) : handleProcess} disabled={isLoading || !inputCode.trim()} className="px-16 py-6 text-lg font-semibold">
                 {isLoading ? (
                   <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="flex items-center gap-2">
                     <Wand2 className="h-5 w-5" />
@@ -363,8 +422,8 @@ export default function Home() {
                   </motion.div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {mode === "beautify" ? <Maximize2 className="h-5 w-5" /> : <Minimize2 className="h-5 w-5" />}
-                    {mode === "beautify" ? "Beautify" : "Minify"}
+                    {mode === "beautify" ? <Maximize2 className="h-5 w-5" /> : mode === "minify" ? <Minimize2 className="h-5 w-5" /> : <Pencil className="h-5 w-5" />}
+                    {mode === "beautify" ? "Beautify" : mode === "minify" ? "Minify" : (detectedVars.length > 0 ? "Apply Renames" : "Detect Variables")}
                   </div>
                 )}
               </Button>
