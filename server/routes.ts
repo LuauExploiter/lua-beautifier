@@ -4,21 +4,42 @@ import { storage } from "./storage";
 import luaFormat from "lua-format";
 import { smartRename } from "./variableAnalyzer";
 
+// Fast in-memory cache for performance
+const cache = new Map<string, string>();
+const CACHE_MAX_SIZE = 100;
+
+function getCacheKey(code: string, options: any, endpoint: string): string {
+  return `${endpoint}:${code.length}:${JSON.stringify(options).length}`;
+}
+
+function getCached(key: string): string | null {
+  return cache.get(key) || null;
+}
+
+function setCached(key: string, value: string): void {
+  if (cache.size >= CACHE_MAX_SIZE) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) cache.delete(firstKey);
+  }
+  cache.set(key, value);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   app.post('/beautify', (req, res) => {
     const { code, options } = req.body;
-    if (!code) return res.status(400).json({ error: 'No code provided' });
+    if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Invalid code' });
     try {
-      let processedCode = code;
+      let processedCode = code.trim();
+      if (!processedCode) return res.status(400).json({ error: 'Code is empty' });
 
       let result = luaFormat.Beautify(processedCode, {
         RenameVariables: options?.renameVariables ?? false,
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
-        Indentation: options?.useTabs ? '\t' : ' '.repeat(options?.indentSize ?? 2),
+        Indentation: options?.useTabs ? '\t' : ' '.repeat(Math.max(1, Math.min(8, options?.indentSize ?? 2))),
       });
 
       // Apply post-processing options
@@ -34,15 +55,17 @@ export async function registerRoutes(
 
       res.json({ result });
     } catch (err) {
-      res.status(500).json({ error: String(err) });
+      console.error('Beautify error:', err);
+      res.status(500).json({ error: 'Processing failed' });
     }
   });
 
   app.post('/minify', (req, res) => {
     const { code, options } = req.body;
-    if (!code) return res.status(400).json({ error: 'No code provided' });
+    if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Invalid code' });
     try {
-      let processedCode = code;
+      let processedCode = code.trim();
+      if (!processedCode) return res.status(400).json({ error: 'Code is empty' });
 
       let result = luaFormat.Minify(processedCode, {
         RenameVariables: options?.renameVariables ?? true,
@@ -51,11 +74,11 @@ export async function registerRoutes(
       });
 
       // Apply post-processing optimizations
-      if (options?.removeWhitespace) {
-        result = result.replace(/\s+/g, ' ').trim();
-      }
       if (options?.removeComments) {
         result = result.replace(/--\[\[[\s\S]*?\]\]--|--[^\n]*/g, '');
+      }
+      if (options?.removeWhitespace) {
+        result = result.replace(/\s+/g, ' ').trim();
       }
       if (options?.convertNumberFormats) {
         result = convertNumberFormats(result);
@@ -66,49 +89,50 @@ export async function registerRoutes(
 
       res.json({ result });
     } catch (err) {
-      res.status(500).json({ error: String(err) });
+      console.error('Minify error:', err);
+      res.status(500).json({ error: 'Processing failed' });
     }
   });
 
   app.post('/api/detect-vars', (req, res) => {
     const { code } = req.body;
-    if (!code) return res.status(400).json({ error: 'No code provided' });
+    if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Invalid code' });
     try {
+      let trimmedCode = code.trim();
+      if (!trimmedCode) return res.status(400).json({ error: 'Code is empty' });
+
       const variables: Array<{ old: string; detected: string }> = [];
       const typeCounters: { [key: string]: number } = {};
 
-      // Find all local variable assignments with their RHS
-      // Improved: handles one-liners, nested calls, and obfuscated patterns
-      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^;\n]+?)(?=\n|;|$)/g;
+      // Find all local variable assignments - handles one-liners, nested, obfuscated
+      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^;\n]+?)(?=\n|;|$|local\s)/g;
       let m;
-      while ((m = regex.exec(code)) !== null) {
+      while ((m = regex.exec(trimmedCode)) !== null) {
         const varName = m[1];
         const rhs = m[2].trim();
+        if (!rhs) continue;
         
-        let semanticName = extractSemanticName(rhs, code);
+        let semanticName = extractSemanticName(rhs);
         
-        // Count duplicates and add suffix
+        // Count duplicates
         if (typeCounters[semanticName] !== undefined) {
           typeCounters[semanticName]++;
-          const finalName = `${semanticName}${typeCounters[semanticName]}`;
-          variables.push({ old: varName, detected: finalName });
+          variables.push({ old: varName, detected: `${semanticName}${typeCounters[semanticName]}` });
         } else {
           typeCounters[semanticName] = 1;
           variables.push({ old: varName, detected: semanticName });
         }
       }
 
-      // Also detect function definitions with semantic analysis
+      // Detect functions with semantic analysis
       const funcRegex = /\blocal\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)[\s\n]*([\s\S]*?)(?=\bend\b|$)/g;
       let fm;
-      while ((fm = funcRegex.exec(code)) !== null) {
+      while ((fm = funcRegex.exec(trimmedCode)) !== null) {
         const funcName = fm[1];
         const args = fm[2] || "";
         const body = fm[3] || "";
         
         let semanticFuncName = analyzeFunction(funcName, args, body);
-        
-        // Count duplicates
         if (typeCounters[semanticFuncName] !== undefined) {
           typeCounters[semanticFuncName]++;
           variables.push({ old: funcName, detected: `${semanticFuncName}${typeCounters[semanticFuncName]}` });
@@ -118,92 +142,80 @@ export async function registerRoutes(
         }
       }
 
-      // Solve math expressions in the code
-      let solvedCode = code;
-      const mathRegex = /(\d+)\s*([+\-*/%])\s*(\d+)/g;
+      // Solve math: handles decimals, preserves hex/large numbers
+      let solvedCode = trimmedCode;
+      const mathRegex = /(\d+(?:\.\d+)?)\s*([+\-*/%])\s*(\d+(?:\.\d+)?)/g;
       solvedCode = solvedCode.replace(mathRegex, (match: string, a: string, op: string, b: string): string => {
-        const numA = parseInt(a);
-        const numB = parseInt(b);
-        let result;
-        switch (op) {
-          case '+': result = numA + numB; break;
-          case '-': result = numA - numB; break;
-          case '*': result = numA * numB; break;
-          case '/': result = Math.floor(numA / numB); break;
-          case '%': result = numA % numB; break;
-          default: return match;
+        try {
+          const numA = parseFloat(a);
+          const numB = parseFloat(b);
+          let result;
+          switch (op) {
+            case '+': result = numA + numB; break;
+            case '-': result = numA - numB; break;
+            case '*': result = numA * numB; break;
+            case '/': result = numA / numB; break;
+            case '%': result = numA % numB; break;
+            default: return match;
+          }
+          return op === '/' ? result.toString() : Math.floor(result).toString();
+        } catch {
+          return match;
         }
-        return String(result);
       });
 
       res.json({ variables, solvedCode });
     } catch (err) {
-      res.status(500).json({ error: String(err) });
+      console.error('Detect vars error:', err);
+      res.status(500).json({ error: 'Detection failed' });
     }
   });
 
-  // Helper to extract semantic name from RHS - with advanced obfuscation detection
-  function extractSemanticName(rhs: string, fullCode: string = ''): string {
-    // Handle game:GetService("Players") → Players
-    const getServiceMatch = rhs.match(/GetService\s*\(\s*["']([^"']+)["']\s*\)/);
-    if (getServiceMatch) {
-      return getServiceMatch[1];
+  // Extract semantic name from RHS - optimized for speed & intelligence
+  function extractSemanticName(rhs: string): string {
+    if (!rhs || rhs.length === 0) return 'Var';
+
+    // GetService detection
+    if (rhs.includes('GetService')) {
+      const m = rhs.match(/GetService\s*\(\s*["']([^"']+)["']\s*\)/);
+      if (m) return m[1];
     }
 
-    // Handle Instance.new("Type", Parent) or Instance.new("Type") → Type
-    const instanceNewMatch = rhs.match(/Instance\.new\s*\(\s*["']([^"']+)["']/);
-    if (instanceNewMatch) {
-      return instanceNewMatch[1];
+    // Instance.new detection
+    if (rhs.includes('Instance.new')) {
+      const m = rhs.match(/Instance\.new\s*\(\s*["']([^"']+)["']/);
+      if (m) return m[1];
     }
 
-    // Handle game.Players, workspace.X, script.X → extract last property
-    const gamePlayersMatch = rhs.match(/(game|workspace|script)\.([A-Za-z_]\w*)/);
-    if (gamePlayersMatch) {
-      return gamePlayersMatch[2];
-    }
+    // Property access (game.X, workspace.X, script.X, require.X)
+    const propMatch = rhs.match(/(game|workspace|script|require)\.([A-Za-z_]\w*)/);
+    if (propMatch) return propMatch[2];
 
-    // Handle chained calls like game:GetService("X"):FindFirstChild(...) 
-    const chainedMatch = rhs.match(/:\w+\s*\([^)]*\)\s*:/);
-    if (chainedMatch) {
-      return 'Result';
-    }
+    // Table constructor
+    if (rhs.startsWith('{')) return 'Table';
 
-    // Handle table/array constructors {...} 
-    if (rhs.startsWith('{')) {
-      return 'Table';
-    }
+    // Boolean/Nil
+    if (rhs === 'true' || rhs === 'false') return 'Enabled';
+    if (rhs === 'nil') return 'Value';
 
-    // Handle functions and methods
-    if (rhs.includes('function') || rhs.match(/\w+\s*\(/)) {
-      return 'Function';
-    }
+    // Numbers (including decimals, scientific notation)
+    if (/^-?[\d.]+(?:e[+-]?\d+)?$/.test(rhs)) return 'Number';
 
-    // Handle LocalPlayer reference
-    if (rhs.includes('LocalPlayer')) {
-      return 'LocalPlayer';
-    }
+    // Strings
+    if (rhs.startsWith('"') || rhs.startsWith("'")) return 'Text';
 
-    // Handle workspace reference
-    if (rhs.includes('workspace')) {
-      return 'Workspace';
-    }
+    // Function definitions
+    if (rhs.includes('function')) return 'Function';
 
-    // Handle obfuscated math/logic
-    if (/^[\d\s+\-*/%()]+$/.test(rhs)) {
-      return 'Calculation';
-    }
+    // Method calls with chaining
+    if (/:[\w]+\s*\(.*\)\s*:/.test(rhs)) return 'Result';
 
-    // Handle string literals
-    if (rhs.match(/^["']/)) {
-      return 'Text';
-    }
+    // Generic method calls
+    if (rhs.match(/\.\w+\s*\(/) || rhs.match(/:\w+\s*\(/)) return 'Result';
 
-    // Handle numeric literals
-    if (/^\d+(\.\d+)?$/.test(rhs)) {
-      return 'Number';
-    }
+    // Math expressions
+    if (/^[\d\s+\-*/%().]+$/.test(rhs)) return 'Calculation';
 
-    // Default
     return 'Var';
   }
 
