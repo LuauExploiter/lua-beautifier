@@ -99,7 +99,7 @@ export async function registerRoutes(
       const typeCounters: { [key: string]: number } = {};
 
       // Find all local variable assignments with their RHS
-      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\n|$)/g;
+      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\n|;|$)/g;
       let m;
       while ((m = regex.exec(code)) !== null) {
         const varName = m[1];
@@ -117,7 +117,40 @@ export async function registerRoutes(
           variables.push({ old: varName, detected: semanticName });
         }
       }
-      res.json({ variables });
+
+      // Also detect function definitions
+      const funcRegex = /\blocal\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+      let fm;
+      while ((fm = funcRegex.exec(code)) !== null) {
+        const funcName = fm[1];
+        if (typeCounters['Function'] !== undefined) {
+          typeCounters['Function']++;
+          variables.push({ old: funcName, detected: `Function${typeCounters['Function']}` });
+        } else {
+          typeCounters['Function'] = 1;
+          variables.push({ old: funcName, detected: funcName });
+        }
+      }
+
+      // Solve math expressions in the code
+      let solvedCode = code;
+      const mathRegex = /(\d+)\s*([+\-*/%])\s*(\d+)/g;
+      solvedCode = solvedCode.replace(mathRegex, (match: string, a: string, op: string, b: string): string => {
+        const numA = parseInt(a);
+        const numB = parseInt(b);
+        let result;
+        switch (op) {
+          case '+': result = numA + numB; break;
+          case '-': result = numA - numB; break;
+          case '*': result = numA * numB; break;
+          case '/': result = Math.floor(numA / numB); break;
+          case '%': result = numA % numB; break;
+          default: return match;
+        }
+        return String(result);
+      });
+
+      res.json({ variables, solvedCode });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -131,8 +164,9 @@ export async function registerRoutes(
       return getServiceMatch[1];
     }
 
-    // Handle Instance.new("ScreenGui") → ScreenGui
-    const instanceNewMatch = rhs.match(/Instance\.new\s*\(\s*["']([^"']+)["']\s*\)/);
+    // Handle Instance.new("Type", Parent) or Instance.new("Type") → Type
+    // This takes the first argument (the type), not parent
+    const instanceNewMatch = rhs.match(/Instance\.new\s*\(\s*["']([^"']+)["']/);
     if (instanceNewMatch) {
       return instanceNewMatch[1];
     }

@@ -83,13 +83,41 @@ export default function Home() {
       const data = await response.json();
       if (data.variables && data.variables.length > 0) {
         setDetectedVars(data.variables);
-        let result = inputCode;
+        
+        // Start with solved math expressions
+        let result = data.solvedCode || inputCode;
+        
+        // Apply smart renames
         for (const v of data.variables) {
           const regex = new RegExp(`\\b${v.old}\\b`, "g");
           result = result.replace(regex, v.detected);
         }
+        
+        // Apply beautify with smart rename
+        try {
+          const beautifyResponse = await fetch("/beautify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              code: result, 
+              options: { 
+                renameVariables: false,
+                removeBlankLines: true,
+                indentSize: 2,
+                useTabs: false
+              } 
+            }),
+          });
+          const beautifyData = await beautifyResponse.json();
+          if (beautifyData.result) {
+            result = beautifyData.result;
+          }
+        } catch (e) {
+          // If beautify fails, use the renamed version
+        }
+        
         setOutputCode(result);
-        toast({ title: "AutoBeautified!", description: `Renamed ${data.variables.length} variables` });
+        toast({ title: "AutoBeautified!", description: `Renamed ${data.variables.length} vars & solved math` });
       } else {
         toast({ title: "Info", description: "No variables found to rename", variant: "default" });
       }
@@ -316,13 +344,21 @@ export default function Home() {
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden mb-6">
                 <Card>
                   <CardContent className="pt-6 space-y-4">
-                    <p className="text-sm text-muted-foreground">AutoBeautify analyzes variable assignments and automatically renames them based on their values (e.g., game:GetService("Players") → Players)</p>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <p className="font-semibold text-foreground">AutoBeautify Features:</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Smart variable renaming based on assignments</li>
+                        <li>Automatically solves math expressions (5+3 → 8)</li>
+                        <li>Detects and beautifies functions</li>
+                        <li>Handles Instance.new, game:GetService, and more</li>
+                      </ul>
+                    </div>
                     {detectedVars.length > 0 && (
                       <div className="space-y-2 max-h-60 overflow-y-auto">
-                        <Label className="font-medium text-sm">Detected Variables:</Label>
+                        <Label className="font-medium text-sm">Detected Variables & Functions:</Label>
                         {detectedVars.map((v) => (
                           <div key={v.old} className="flex gap-2 items-center text-sm p-2 bg-muted/30 rounded">
-                            <span className="font-mono min-w-20">{v.old}</span>
+                            <span className="font-mono min-w-24">{v.old}</span>
                             <span className="text-muted-foreground">→</span>
                             <span className="font-semibold text-primary">{v.detected}</span>
                           </div>
