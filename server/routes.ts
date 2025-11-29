@@ -91,6 +91,34 @@ export async function registerRoutes(
     }
   });
 
+  app.post('/rename', (req, res) => {
+    const { code, renameMap } = req.body;
+    if (!code) return res.status(400).json({ error: 'No code provided' });
+    try {
+      // If no rename map provided, detect variables
+      if (!renameMap || Object.keys(renameMap).length === 0) {
+        const detected: { [key: string]: string } = {};
+        const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=/g;
+        let m;
+        let counter = 0;
+        while ((m = regex.exec(code)) !== null) {
+          detected[m[1]] = `Var${++counter}`;
+        }
+        res.json({ varMap: detected });
+      } else {
+        // Apply custom renames
+        let result = code;
+        for (const [oldName, newName] of Object.entries(renameMap)) {
+          const regex = new RegExp(`\\b${oldName}\\b`, 'g');
+          result = result.replace(regex, newName);
+        }
+        res.json({ result });
+      }
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   return httpServer;
 }
 

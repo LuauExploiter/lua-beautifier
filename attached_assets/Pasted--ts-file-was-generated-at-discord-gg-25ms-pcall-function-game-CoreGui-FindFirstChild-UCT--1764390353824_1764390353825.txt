@@ -1,0 +1,365 @@
+-- ts file was generated at discord.gg/25ms
+
+
+pcall(function()
+    game.CoreGui:FindFirstChild("UCT_UI"):Destroy()
+end)
+local vu1 = game:GetService("Players")
+local vu2 = game:GetService("RunService")
+local vu3 = game:GetService("UserInputService")
+local vu4 = game:GetService("Workspace")
+local vu5 = vu1.LocalPlayer
+local v6 = Instance.new("ScreenGui", game.CoreGui)
+v6.Name = "UCT_UI"
+v6.ResetOnSpawn = false
+local vu7 = Instance.new("Frame", v6)
+vu7.Size = UDim2.new(0, 260, 0, 200)
+vu7.Position = UDim2.new(1, - 280, 0, 120)
+vu7.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+vu7.BorderSizePixel = 0
+vu7.Active = true
+vu7.Draggable = true
+Instance.new("UICorner", vu7).CornerRadius = UDim.new(0, 8)
+local v8 = Instance.new("UIStroke", vu7)
+v8.Color = Color3.fromRGB(255, 50, 50)
+v8.Thickness = 2
+local v9 = Instance.new("TextLabel", vu7)
+v9.Text = "UCT PvP | discord.gg/uct"
+v9.Font = Enum.Font.GothamBold
+v9.TextColor3 = Color3.fromRGB(255, 255, 255)
+v9.TextSize = 14
+v9.BackgroundTransparency = 1
+v9.Size = UDim2.new(1, - 30, 0, 26)
+v9.Position = UDim2.new(0, 10, 0, 6)
+v9.TextXAlignment = Enum.TextXAlignment.Left
+local v10 = Instance.new("TextButton", vu7)
+v10.Text = "X"
+v10.Font = Enum.Font.GothamBold
+v10.TextSize = 16
+v10.TextColor3 = Color3.fromRGB(255, 60, 60)
+v10.BackgroundTransparency = 1
+v10.Size = UDim2.new(0, 25, 0, 25)
+v10.Position = UDim2.new(1, - 28, 0, 6)
+v10.MouseButton1Click:Connect(function()
+    vu7.Visible = not vu7.Visible
+end)
+local function v24(p11, p12, p13)
+    local v14 = Instance.new("Frame", p11)
+    v14.Size = UDim2.new(1, - 20, 0, 38)
+    v14.Position = UDim2.new(0, 10, 0, p13)
+    v14.BackgroundTransparency = 1
+    local v15 = Instance.new("TextLabel", v14)
+    v15.Text = p12
+    v15.Font = Enum.Font.GothamBold
+    v15.TextColor3 = Color3.fromRGB(255, 255, 255)
+    v15.TextSize = 15
+    v15.BackgroundTransparency = 1
+    v15.Size = UDim2.new(1, - 60, 1, 0)
+    v15.TextXAlignment = Enum.TextXAlignment.Left
+    local v16 = Instance.new("Frame", v14)
+    v16.Size = UDim2.new(0, 36, 0, 18)
+    v16.Position = UDim2.new(1, - 46, 0.5, - 9)
+    v16.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    Instance.new("UICorner", v16).CornerRadius = UDim.new(1, 0)
+    local vu17 = Instance.new("Frame", v16)
+    vu17.Size = UDim2.new(0, 14, 0, 14)
+    vu17.Position = UDim2.new(0, 2, 0.5, - 7)
+    vu17.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    Instance.new("UICorner", vu17).CornerRadius = UDim.new(1, 0)
+    local vu18 = Instance.new("Frame", p11)
+    vu18.Size = UDim2.new(1, - 20, 0, 1)
+    vu18.Position = UDim2.new(0, 10, 0, p13 + 38)
+    vu18.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    local vu19 = Instance.new("UIStroke", vu18)
+    vu19.Thickness = 1.3
+    task.spawn(function()
+        while vu18.Parent do
+            for v20 = 0, 1, 0.03 do
+                vu19.Color = Color3.fromHSV(0, 1, 0.6 + v20 * 0.4)
+                task.wait(0.05)
+            end
+            for v21 = 0, 1, 0.03 do
+                vu19.Color = Color3.fromHSV(0, 1, 1 - v21 * 0.4)
+                task.wait(0.05)
+            end
+        end
+    end)
+    local vu22 = false
+    v16.InputBegan:Connect(function(p23)
+        if p23.UserInputType == Enum.UserInputType.MouseButton1 or p23.UserInputType == Enum.UserInputType.Touch then
+            vu22 = not vu22
+            if vu22 then
+                vu17:TweenPosition(UDim2.new(1, - 16, 0.5, - 7), "Out", "Sine", 0.12, true)
+                vu17.BackgroundColor3 = Color3.fromRGB(0, 255, 120)
+            else
+                vu17:TweenPosition(UDim2.new(0, 2, 0.5, - 7), "Out", "Sine", 0.12, true)
+                vu17.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+            end
+        end
+    end)
+    return function()
+        return vu22
+    end
+end
+local vu25 = v24(vu7, "Booster", 40)
+local vu26 = v24(vu7, "Anti Knockback", 80)
+local vu27 = v24(vu7, "Hitbox Expander", 120)
+local vu28 = false
+local vu29 = 196.2
+local vu30 = 40
+local vu31 = 50
+local vu32 = 30
+local vu33 = 27
+local vu34 = vu29
+pcall(function()
+    local v35 = getrawmetatable(vu4)
+    setreadonly(v35, false)
+    local vu36 = v35.__index
+    function v35.__index(p37, p38)
+        if p38 == "Gravity" then
+            return vu34
+        else
+            return vu36(p37, p38)
+        end
+    end
+    setreadonly(v35, true)
+end)
+local vu39 = nil
+local vu40 = nil
+local function vu48(p41)
+    vu28 = p41
+    vu4.Gravity = p41 and vu30 or vu29
+    local v42 = vu5.Character
+    if v42 then
+        v42 = vu5.Character:FindFirstChildOfClass("Humanoid")
+    end
+    if v42 then
+        v42.UseJumpPower = true
+        v42.JumpPower = p41 and vu32 or vu31
+    end
+    if vu39 then
+        vu39:Disconnect()
+        vu39 = nil
+    end
+    if p41 then
+        vu39 = vu2.Heartbeat:Connect(function()
+            local v43 = vu5.Character
+            if v43 then
+                local v44 = v43:FindFirstChild("HumanoidRootPart")
+                local v45 = v43:FindFirstChildOfClass("Humanoid")
+                if v44 and (v45 and v45.MoveDirection.Magnitude > 0) then
+                    v44.Velocity = Vector3.new(v45.MoveDirection.X * vu33, v44.Velocity.Y, v45.MoveDirection.Z * vu33)
+                end
+            end
+        end)
+    end
+    if vu40 then
+        vu40:Disconnect()
+        vu40 = nil
+    end
+    if p41 then
+        vu40 = vu3.JumpRequest:Connect(function()
+            local v46 = vu5.Character
+            local v47
+            if v46 then
+                v47 = v46:FindFirstChildOfClass("Humanoid")
+            else
+                v47 = v46
+            end
+            if v46 then
+                v46 = v46:FindFirstChild("HumanoidRootPart")
+            end
+            if v47 and v46 then
+                v46.Velocity = Vector3.new(v46.Velocity.X, v47.JumpPower, v46.Velocity.Z)
+            end
+        end)
+    end
+end
+local vu49 = false
+local vu50 = {}
+local function vu92()
+    if not vu49 then
+        vu49 = true
+        local v51 = game:GetService("Players")
+        local vu52 = game:GetService("ReplicatedStorage")
+        local v53 = game:GetService("Workspace")
+        local v54 = game:GetService("RunService")
+        local vu55 = v51.LocalPlayer
+        local vu56 = vu55.Character or vu55.CharacterAdded:Wait()
+        local v57 = vu56
+        local vu58 = vu56.WaitForChild(v57, "Humanoid")
+        local v59 = vu56
+        local vu60 = vu56.WaitForChild(v59, "HumanoidRootPart")
+        local vu61 = v53.CurrentCamera
+        local v62 = vu58
+        local vu63 = vu58.WaitForChild(v62, "Animator")
+        local vu64 = 40
+        local vu65 = 25
+        local vu66 = 15
+        local vu67 = true
+        local vu68 = Vector3.new(0, 0, 0)
+        local function vu70()
+            local v69 = vu58:GetState()
+            return v69 == Enum.HumanoidStateType.Physics or (v69 == Enum.HumanoidStateType.Ragdoll or (v69 == Enum.HumanoidStateType.FallingDown or v69 == Enum.HumanoidStateType.GettingUp))
+        end
+        local function vu72()
+            pcall(function()
+                local v71 = vu55:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")
+                require(v71):GetControls():Enable()
+            end)
+        end
+        local function vu89()
+            local v73 = vu56
+            local v74, v75, v76 = pairs(v73:GetDescendants())
+            while true do
+                local v77
+                v76, v77 = v74(v75, v76)
+                if v76 == nil then
+                    break
+                end
+                if v77:IsA("BallSocketConstraint") or (v77:IsA("NoCollisionConstraint") or (v77:IsA("HingeConstraint") or v77:IsA("Attachment") and (v77.Name == "A" or v77.Name == "B"))) then
+                    v77:Destroy()
+                elseif vu67 and (v77:IsA("BodyVelocity") or (v77:IsA("BodyPosition") or v77:IsA("BodyGyro"))) then
+                    v77:Destroy()
+                end
+            end
+            local v78 = vu56
+            local v79, v80, v81 = pairs(v78:GetDescendants())
+            while true do
+                local v82
+                v81, v82 = v79(v80, v81)
+                if v81 == nil then
+                    break
+                end
+                if v82:IsA("Motor6D") then
+                    v82.Enabled = true
+                end
+            end
+            local v83 = vu63
+            local v84, v85, v86 = pairs(v83:GetPlayingAnimationTracks())
+            while true do
+                local v87
+                v86, v87 = v84(v85, v86)
+                if v86 == nil then
+                    break
+                end
+                local v88 = v87.Animation and (v87.Animation.Name:lower() or "") or ""
+                if v88:find("rag") or (v88:find("fall") or (v88:find("hurt") or v88:find("down"))) then
+                    v87:Stop(0)
+                end
+            end
+        end
+        table.insert(vu50, vu58.StateChanged:Connect(function(_, _)
+            if vu70() then
+                vu58:ChangeState(Enum.HumanoidStateType.Running)
+                vu89()
+                vu61.CameraSubject = vu58
+                vu72()
+            end
+        end))
+        pcall(function()
+            table.insert(vu50, vu52.Packages.Net["RE/CombatService/ApplyImpulse"].OnClientEvent:Connect(function()
+                if vu70() then
+                    vu60.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end
+            end))
+        end)
+        table.insert(vu50, vu56.DescendantAdded:Connect(function()
+            if vu70() then
+                vu89()
+            end
+        end))
+        table.insert(vu50, v54.Heartbeat:Connect(function()
+            if vu70() then
+                vu89()
+                local v90 = vu60.AssemblyLinearVelocity
+                if vu64 < (v90 - vu68).Magnitude and vu65 < v90.Magnitude then
+                    vu60.AssemblyLinearVelocity = v90.Unit * math.min(v90.Magnitude, vu66)
+                end
+                vu68 = v90
+            end
+        end))
+        vu72()
+        vu89()
+        table.insert(vu50, vu55.CharacterAdded:Connect(function(p91)
+            vu56 = p91
+            vu58 = p91:WaitForChild("Humanoid")
+            vu60 = p91:WaitForChild("HumanoidRootPart")
+            vu63 = vu58:WaitForChild("Animator")
+            vu68 = Vector3.new(0, 0, 0)
+            vu72()
+            vu89()
+        end))
+    end
+end
+local function vu97()
+    vu49 = false
+    local v93, v94, v95 = pairs(vu50)
+    while true do
+        local v96
+        v95, v96 = v93(v94, v95)
+        if v95 == nil then
+            break
+        end
+        v96:Disconnect()
+    end
+    vu50 = {}
+end
+local function vu99(p98)
+    if p98 then
+        vu92()
+    else
+        vu97()
+    end
+end
+local vu100 = false
+local vu101 = nil
+local function vu115(p102)
+    vu100 = p102
+    if vu101 then
+        vu101:Disconnect()
+        vu101 = nil
+    end
+    if p102 then
+        vu101 = vu2.RenderStepped:Connect(function()
+            local v103 = vu1
+            local v104, v105, v106 = pairs(v103:GetPlayers())
+            while true do
+                local v107
+                v106, v107 = v104(v105, v106)
+                if v106 == nil then
+                    break
+                end
+                if v107 ~= vu5 and v107.Character and v107.Character:FindFirstChild("HumanoidRootPart") then
+                    local v108 = v107.Character.HumanoidRootPart
+                    v108.Size = Vector3.new(12, 12, 12)
+                    v108.Transparency = 0.4
+                    v108.Color = Color3.fromRGB(255, 255, 255)
+                    v108.Material = Enum.Material.SmoothPlastic
+                    v108.CanCollide = false
+                end
+            end
+        end)
+    else
+        local v109 = vu1
+        local v110, v111, v112 = pairs(v109:GetPlayers())
+        while true do
+            local v113
+            v112, v113 = v110(v111, v112)
+            if v112 == nil then
+                break
+            end
+            if v113.Character and v113.Character:FindFirstChild("HumanoidRootPart") then
+                local v114 = v113.Character.HumanoidRootPart
+                v114.Size = Vector3.new(2, 2, 1)
+                v114.Transparency = 1
+                v114.Material = Enum.Material.Plastic
+            end
+        end
+    end
+end
+vu2.Heartbeat:Connect(function()
+    vu48(vu25())
+    vu99(vu26())
+    vu115(vu27())
+end)

@@ -251,8 +251,10 @@ function buildRenameMap(
 ): { [key: string]: string } {
   const map: { [key: string]: string } = {};
   const usedNames = new Set<string>();
+  const cache = new Map<string, string>();
 
   function uniqueName(base: string): string {
+    if (cache.has(base)) return cache.get(base)!;
     let name = base;
     let i = 1;
     while (usedNames.has(name)) {
@@ -260,6 +262,7 @@ function buildRenameMap(
       i++;
     }
     usedNames.add(name);
+    cache.set(base, name);
     return name;
   }
 
