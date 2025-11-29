@@ -101,20 +101,14 @@ export default function Home() {
           }
         }
         
-        // Apply beautify with smart rename
+        // Apply beautify with selected options
         try {
           const beautifyResponse = await fetch("/beautify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
               code: result, 
-              options: { 
-                renameVariables: false,
-                removeBlankLines: true,
-                removeComments: beautifyOptions.removeComments,
-                indentSize: 2,
-                useTabs: false
-              } 
+              options: beautifyOptions
             }),
           });
           const beautifyData = await beautifyResponse.json();
@@ -126,7 +120,7 @@ export default function Home() {
         }
         
         setOutputCode(result);
-        toast({ title: "Beautified!", description: `Renamed ${data.variables.length} vars & solved math` });
+        toast({ title: "Beautified!", description: "Done" });
       } else {
         toast({ title: "Info", description: "No variables found to rename", variant: "default" });
       }

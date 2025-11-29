@@ -32,17 +32,10 @@ export async function registerRoutes(
     const { code, options } = req.body;
     if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Invalid code' });
     try {
-      let processedCode = code.trim();
-      if (!processedCode) return res.status(400).json({ error: 'Code is empty' });
+      let result = code.trim();
+      if (!result) return res.status(400).json({ error: 'Code is empty' });
 
-      let result = luaFormat.Beautify(processedCode, {
-        RenameVariables: options?.renameVariables ?? false,
-        RenameGlobals: options?.renameGlobals ?? false,
-        SolveMath: options?.solveMath ?? false,
-        Indentation: options?.useTabs ? '\t' : ' '.repeat(Math.max(1, Math.min(8, options?.indentSize ?? 2))),
-      });
-
-      // Apply post-processing options
+      // Only apply the selected options - nothing else
       if (options?.removeComments) {
         // Remove block comments first
         result = result.replace(/--\[\[[\s\S]*?\]\]/g, '');
@@ -51,6 +44,7 @@ export async function registerRoutes(
         // Clean up resulting blank lines
         result = result.replace(/\n\s*\n/g, '\n');
       }
+      
       if (options?.removePrints) {
         // Remove print/warn statements, handling nested parentheses
         let depthResult = result;
@@ -79,15 +73,6 @@ export async function registerRoutes(
         }
         result = output + depthResult.slice(lastIndex);
       }
-      if (options?.removeBlankLines) {
-        result = result.replace(/\n\s*\n/g, '\n');
-      }
-      if (options?.normalizeQuotes) {
-        result = result.replace(/'/g, '"');
-      }
-      if (options?.sortTableFields) {
-        result = sortTableFields(result);
-      }
 
       res.json({ result });
     } catch (err) {
@@ -100,26 +85,22 @@ export async function registerRoutes(
     const { code, options } = req.body;
     if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Invalid code' });
     try {
-      let processedCode = code.trim();
-      if (!processedCode) return res.status(400).json({ error: 'Code is empty' });
+      let result = code.trim();
+      if (!result) return res.status(400).json({ error: 'Code is empty' });
 
-      let result = luaFormat.Minify(processedCode, {
+      // Use luamin for minification with selected options
+      result = luaFormat.Minify(result, {
         RenameVariables: options?.renameVariables ?? true,
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
       });
 
-      // Apply post-processing optimizations
+      // Apply post-processing for selected options
       if (options?.removeComments) {
-        // Remove block comments first
         result = result.replace(/--\[\[[\s\S]*?\]\]/g, '');
-        // Remove all single-line comments (inline and full-line)
         result = result.replace(/--[^\n]*/g, '');
-        // Clean up resulting blank lines
-        result = result.replace(/\n\s*\n/g, '\n');
       }
       if (options?.removePrints) {
-        // Remove print/warn statements, handling nested parentheses
         let depthResult = result;
         const printRegex = /\b(print|warn)\s*\(/g;
         let lastIndex = 0;
