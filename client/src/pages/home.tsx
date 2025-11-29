@@ -81,51 +81,25 @@ export default function Home() {
     
     setIsLoading(true);
     try {
-      const response = await fetch("/api/detect-vars", {
+      // Just apply beautify with selected options - no variable detection
+      const response = await fetch("/beautify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: inputCode, options: beautifyOptions }),
+        body: JSON.stringify({ 
+          code: inputCode, 
+          options: beautifyOptions
+        }),
       });
+      
       const data = await response.json();
-      if (data.variables && data.variables.length > 0) {
-        setDetectedVars(data.variables);
-        
-        // Start with solved math expressions
-        let result = data.solvedCode || inputCode;
-        
-        // Apply variable renames if enabled
-        if (beautifyOptions.renameVariables) {
-          for (const v of data.variables) {
-            const regex = new RegExp(`\\b${v.old}\\b`, "g");
-            result = result.replace(regex, v.detected);
-          }
-        }
-        
-        // Apply beautify with selected options
-        try {
-          const beautifyResponse = await fetch("/beautify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              code: result, 
-              options: beautifyOptions
-            }),
-          });
-          const beautifyData = await beautifyResponse.json();
-          if (beautifyData.result) {
-            result = beautifyData.result;
-          }
-        } catch (e) {
-          // If beautify fails, use the renamed version
-        }
-        
-        setOutputCode(result);
+      if (data.result) {
+        setOutputCode(data.result);
         toast({ title: "Beautified!", description: "Done" });
       } else {
-        toast({ title: "Info", description: "No variables found to rename", variant: "default" });
+        toast({ title: "Error", description: "Failed to beautify", variant: "destructive" });
       }
     } catch (err) {
-      toast({ title: "Error", description: "Failed to detect variables", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to process code", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
