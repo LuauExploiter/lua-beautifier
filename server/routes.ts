@@ -43,6 +43,37 @@ export async function registerRoutes(
       });
 
       // Apply post-processing options
+      if (options?.removeComments) {
+        result = result.replace(/--\[\[[\s\S]*?\]\]--|--[^\n]*/g, '');
+      }
+      if (options?.removePrints) {
+        // Remove print/warn statements, handling nested parentheses
+        let depthResult = result;
+        const printRegex = /\b(print|warn)\s*\(/g;
+        let lastIndex = 0;
+        let output = '';
+        let match;
+        while ((match = printRegex.exec(depthResult)) !== null) {
+          output += depthResult.slice(lastIndex, match.index);
+          let depth = 1;
+          let i = match.index + match[0].length;
+          while (i < depthResult.length && depth > 0) {
+            if (depthResult[i] === '(') depth++;
+            if (depthResult[i] === ')') depth--;
+            i++;
+          }
+          lastIndex = i;
+          // Skip trailing newline/semicolon
+          while (lastIndex < depthResult.length && /[\s;]/.test(depthResult[lastIndex])) {
+            if (depthResult[lastIndex] === '\n') {
+              lastIndex++;
+              break;
+            }
+            lastIndex++;
+          }
+        }
+        result = output + depthResult.slice(lastIndex);
+      }
       if (options?.removeBlankLines) {
         result = result.replace(/\n\s*\n/g, '\n');
       }
@@ -77,6 +108,33 @@ export async function registerRoutes(
       if (options?.removeComments) {
         result = result.replace(/--\[\[[\s\S]*?\]\]--|--[^\n]*/g, '');
       }
+      if (options?.removePrints) {
+        // Remove print/warn statements, handling nested parentheses
+        let depthResult = result;
+        const printRegex = /\b(print|warn)\s*\(/g;
+        let lastIndex = 0;
+        let output = '';
+        let match;
+        while ((match = printRegex.exec(depthResult)) !== null) {
+          output += depthResult.slice(lastIndex, match.index);
+          let depth = 1;
+          let i = match.index + match[0].length;
+          while (i < depthResult.length && depth > 0) {
+            if (depthResult[i] === '(') depth++;
+            if (depthResult[i] === ')') depth--;
+            i++;
+          }
+          lastIndex = i;
+          while (lastIndex < depthResult.length && /[\s;]/.test(depthResult[lastIndex])) {
+            if (depthResult[lastIndex] === '\n') {
+              lastIndex++;
+              break;
+            }
+            lastIndex++;
+          }
+        }
+        result = output + depthResult.slice(lastIndex);
+      }
       if (options?.removeWhitespace) {
         result = result.replace(/\s+/g, ' ').trim();
       }
@@ -100,6 +158,14 @@ export async function registerRoutes(
     try {
       let trimmedCode = code.trim();
       if (!trimmedCode) return res.status(400).json({ error: 'Code is empty' });
+
+      // First, build a map of variable values for math substitution
+      const varValues: { [key: string]: string } = {};
+      const varValueRegex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(\d+(?:\.\d+)?)\s*(?=\n|;|$|--)/g;
+      let vm;
+      while ((vm = varValueRegex.exec(trimmedCode)) !== null) {
+        varValues[vm[1]] = vm[2];
+      }
 
       const variables: Array<{ old: string; detected: string }> = [];
       const typeCounters: { [key: string]: number } = {};
@@ -142,8 +208,16 @@ export async function registerRoutes(
         }
       }
 
-      // Solve math: handles decimals, preserves hex/large numbers
+      // Solve math: substitute variables FIRST, then solve expressions
       let solvedCode = trimmedCode;
+      
+      // Replace variable names with their values in expressions
+      for (const [varName, value] of Object.entries(varValues)) {
+        const varRegex = new RegExp(`\\b${varName}\\b`, 'g');
+        solvedCode = solvedCode.replace(varRegex, value);
+      }
+
+      // Now solve math expressions with substituted values
       const mathRegex = /(\d+(?:\.\d+)?)\s*([+\-*/%])\s*(\d+(?:\.\d+)?)/g;
       solvedCode = solvedCode.replace(mathRegex, (match: string, a: string, op: string, b: string): string => {
         try {
@@ -215,6 +289,9 @@ export async function registerRoutes(
 
     // Math expressions
     if (/^[\d\s+\-*/%().]+$/.test(rhs)) return 'Calculation';
+
+    // Already a readable identifier (like LocalPlayer)
+    if (/^[A-Za-z_]\w*$/.test(rhs)) return rhs;
 
     return 'Var';
   }
