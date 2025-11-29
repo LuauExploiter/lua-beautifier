@@ -1,0 +1,101 @@
+// SMART RENAME ENGINE — automatic semantic variable renaming
+// Works on ANY Lua/Luau code without external modules
+
+function smartRename(code) {
+    // === Tokenizer ===
+    const tokens = code.match(/(--.*?$)|(\w+)|([^\s\w])/gm) || [];
+
+    // Storage
+    const varMap = {};
+    let varCount = {
+        number: 1,
+        text: 1,
+        callback: 1,
+        instance: 1,
+        table: 1,
+        list: 1,
+        object: 1,
+        unknown: 1
+    };
+
+    const assignRegex = /local\s+(\w+)\s*=\s*(.+)/;
+
+    // === Semantic Classification ===
+    function classify(name, value) {
+        if (!value) return "unknown";
+
+        value = value.trim();
+
+        if (/^Instance\.new/i.test(value)) return "instance";
+        if (/^\d+(\.\d+)?$/.test(value)) return "number";
+        if (/^["'].*["']$/.test(value)) return "text";
+        if (/^function/i.test(value)) return "callback";
+        if (/^\{.*\}$/.test(value)) return "table";
+        if (/^\[.*\]$/.test(value)) return "list";
+
+        // Contains = something.metadata
+        if (value.includes(".") || value.includes(":")) return "object";
+
+        return "unknown";
+    }
+
+    // === First pass: detect variable declarations ===
+    const lines = code.split("\n");
+    for (let line of lines) {
+        const match = line.match(assignRegex);
+        if (!match) continue;
+
+        const name = match[1];
+        const value = match[2];
+
+        const type = classify(name, value);
+
+        let newName = "";
+
+        switch (type) {
+            case "instance":
+                const classMatch = value.match(/Instance\.new\(["'](.*)["']/);
+                const className = classMatch ? classMatch[1] : "Instance";
+                newName = className.charAt(0).toLowerCase() + className.slice(1) + varCount.instance++;
+                break;
+
+            case "number":
+                newName = "number" + varCount.number++;
+                break;
+
+            case "text":
+                newName = "text" + varCount.text++;
+                break;
+
+            case "callback":
+                newName = "callback" + varCount.callback++;
+                break;
+
+            case "table":
+                newName = "table" + varCount.table++;
+                break;
+
+            case "list":
+                newName = "list" + varCount.list++;
+                break;
+
+            case "object":
+                newName = "object" + varCount.object++;
+                break;
+
+            default:
+                newName = "value" + varCount.unknown++;
+                break;
+        }
+
+        varMap[name] = newName;
+    }
+
+    // === Second pass: replace variables everywhere ===
+    const replaced = tokens.map(tok => {
+        if (varMap[tok]) return varMap[tok];
+        return tok;
+    });
+
+    return replaced.join("");
+}

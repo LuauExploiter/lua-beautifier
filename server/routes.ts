@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import luaFormat from "lua-format";
-import { analyzeVariableSemantics, applySemanticRenames } from "./variableAnalyzer";
+import { smartRename } from "./variableAnalyzer";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -17,10 +17,7 @@ export async function registerRoutes(
       // Apply smart semantic renaming FIRST (before beautifying)
       if (options?.renameVariables && options?.smartRename) {
         try {
-          const semantics = analyzeVariableSemantics(code);
-          if (Object.keys(semantics).length > 0) {
-            processedCode = applySemanticRenames(code, semantics);
-          }
+          processedCode = smartRename(code);
         } catch (semanticErr) {
           console.warn('Smart rename failed, using original code:', semanticErr);
         }
@@ -54,19 +51,22 @@ export async function registerRoutes(
     const { code, options } = req.body;
     if (!code) return res.status(400).json({ error: 'No code provided' });
     try {
-      let result = luaFormat.Minify(code, {
-        RenameVariables: options?.renameVariables ?? true,
+      let processedCode = code;
+
+      // Apply smart semantic renaming FIRST if enabled
+      if (options?.renameVariables && options?.smartRename) {
+        try {
+          processedCode = smartRename(code);
+        } catch (semanticErr) {
+          console.warn('Smart rename failed, using original code:', semanticErr);
+        }
+      }
+
+      let result = luaFormat.Minify(processedCode, {
+        RenameVariables: (options?.renameVariables && !options?.smartRename) ?? true,
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
       });
-
-      // Apply smart semantic renaming if enabled
-      if (options?.renameVariables && options?.smartRename) {
-        const semantics = analyzeVariableSemantics(code);
-        if (Object.keys(semantics).length > 0) {
-          result = applySemanticRenames(result, semantics);
-        }
-      }
 
       // Apply post-processing optimizations
       if (options?.removeWhitespace) {
