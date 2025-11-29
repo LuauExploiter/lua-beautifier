@@ -41,10 +41,8 @@ export default function Home() {
     renameVariables: false,
     renameGlobals: false,
     solveMath: false,
-    smartRename: false,
     removeWhitespace: true,
     removeComments: true,
-    removeStrings: false,
     convertNumberFormats: true,
     compressStrings: false,
     removeBlankLines: true,
@@ -233,12 +231,10 @@ export default function Home() {
 
   const minifyOpts = [
     { id: "renameVariables", label: "Rename Variables", desc: "Shorten local names" },
-    { id: "smartRename", label: "Smart Rename", desc: "Semantic naming (v=game.Players→Players)" },
     { id: "renameGlobals", label: "Rename Globals", desc: "Shorten globals (risky)" },
     { id: "solveMath", label: "Solve Math", desc: "Pre-calculate expressions" },
     { id: "removeWhitespace", label: "Remove Whitespace", desc: "Strip all spaces" },
     { id: "removeComments", label: "Remove Comments", desc: "Strip comments" },
-    { id: "removeStrings", label: "Remove Strings", desc: "Replace with placeholders" },
     { id: "convertNumberFormats", label: "Convert Numbers", desc: "Optimize number format" },
     { id: "compressStrings", label: "Compress Strings", desc: "Deduplicate string literals" },
   ];

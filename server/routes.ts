@@ -14,17 +14,8 @@ export async function registerRoutes(
     try {
       let processedCode = code;
 
-      // Apply smart semantic renaming FIRST (before beautifying)
-      if (options?.renameVariables && options?.smartRename) {
-        try {
-          processedCode = smartRename(code);
-        } catch (semanticErr) {
-          console.warn('Smart rename failed, using original code:', semanticErr);
-        }
-      }
-
       let result = luaFormat.Beautify(processedCode, {
-        RenameVariables: (options?.renameVariables && !options?.smartRename) ?? false,
+        RenameVariables: options?.renameVariables ?? false,
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
         Indentation: options?.useTabs ? '\t' : ' '.repeat(options?.indentSize ?? 2),
@@ -53,17 +44,8 @@ export async function registerRoutes(
     try {
       let processedCode = code;
 
-      // Apply smart semantic renaming FIRST if enabled
-      if (options?.renameVariables && options?.smartRename) {
-        try {
-          processedCode = smartRename(code);
-        } catch (semanticErr) {
-          console.warn('Smart rename failed, using original code:', semanticErr);
-        }
-      }
-
       let result = luaFormat.Minify(processedCode, {
-        RenameVariables: (options?.renameVariables && !options?.smartRename) ?? true,
+        RenameVariables: options?.renameVariables ?? true,
         RenameGlobals: options?.renameGlobals ?? false,
         SolveMath: options?.solveMath ?? false,
       });
@@ -71,9 +53,6 @@ export async function registerRoutes(
       // Apply post-processing optimizations
       if (options?.removeWhitespace) {
         result = result.replace(/\s+/g, ' ').trim();
-      }
-      if (options?.removeStrings) {
-        result = result.replace(/"[^"]*"|'[^']*'/g, '""');
       }
       if (options?.removeComments) {
         result = result.replace(/--\[\[[\s\S]*?\]\]--|--[^\n]*/g, '');
@@ -99,13 +78,14 @@ export async function registerRoutes(
       const typeCounters: { [key: string]: number } = {};
 
       // Find all local variable assignments with their RHS
-      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\n|;|$)/g;
+      // Improved: handles one-liners, nested calls, and obfuscated patterns
+      const regex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^;\n]+?)(?=\n|;|$)/g;
       let m;
       while ((m = regex.exec(code)) !== null) {
         const varName = m[1];
         const rhs = m[2].trim();
         
-        let semanticName = extractSemanticName(rhs);
+        let semanticName = extractSemanticName(rhs, code);
         
         // Count duplicates and add suffix
         if (typeCounters[semanticName] !== undefined) {
@@ -162,8 +142,8 @@ export async function registerRoutes(
     }
   });
 
-  // Helper to extract semantic name from RHS
-  function extractSemanticName(rhs: string): string {
+  // Helper to extract semantic name from RHS - with advanced obfuscation detection
+  function extractSemanticName(rhs: string, fullCode: string = ''): string {
     // Handle game:GetService("Players") → Players
     const getServiceMatch = rhs.match(/GetService\s*\(\s*["']([^"']+)["']\s*\)/);
     if (getServiceMatch) {
@@ -171,16 +151,31 @@ export async function registerRoutes(
     }
 
     // Handle Instance.new("Type", Parent) or Instance.new("Type") → Type
-    // This takes the first argument (the type), not parent
     const instanceNewMatch = rhs.match(/Instance\.new\s*\(\s*["']([^"']+)["']/);
     if (instanceNewMatch) {
       return instanceNewMatch[1];
     }
 
-    // Handle game.Players → Players
-    const gamePlayersMatch = rhs.match(/game\.([A-Za-z_]\w*)/);
+    // Handle game.Players, workspace.X, script.X → extract last property
+    const gamePlayersMatch = rhs.match(/(game|workspace|script)\.([A-Za-z_]\w*)/);
     if (gamePlayersMatch) {
-      return gamePlayersMatch[1];
+      return gamePlayersMatch[2];
+    }
+
+    // Handle chained calls like game:GetService("X"):FindFirstChild(...) 
+    const chainedMatch = rhs.match(/:\w+\s*\([^)]*\)\s*:/);
+    if (chainedMatch) {
+      return 'Result';
+    }
+
+    // Handle table/array constructors {...} 
+    if (rhs.startsWith('{')) {
+      return 'Table';
+    }
+
+    // Handle functions and methods
+    if (rhs.includes('function') || rhs.match(/\w+\s*\(/)) {
+      return 'Function';
     }
 
     // Handle LocalPlayer reference
@@ -193,75 +188,114 @@ export async function registerRoutes(
       return 'Workspace';
     }
 
-    // Default to Var
+    // Handle obfuscated math/logic
+    if (/^[\d\s+\-*/%()]+$/.test(rhs)) {
+      return 'Calculation';
+    }
+
+    // Handle string literals
+    if (rhs.match(/^["']/)) {
+      return 'Text';
+    }
+
+    // Handle numeric literals
+    if (/^\d+(\.\d+)?$/.test(rhs)) {
+      return 'Number';
+    }
+
+    // Default
     return 'Var';
   }
 
-  // Analyze function body and determine what it does
+  // Analyze function body and determine what it does - WITH ADVANCED INTELLIGENCE
   function analyzeFunction(funcName: string, args: string, body: string): string {
-    // Check for return statements indicating check/validation functions
-    if (/\breturn\s+(true|false|[^,\n]*==|[^,\n]*~=|[^,\n]*>|[^,\n]*<)/.test(body)) {
-      if (body.includes('==') || body.includes('~=')) return 'Check';
-      if (body.includes('>=') || body.includes('<=') || body.includes('>') || body.includes('<')) return 'Compare';
+    // Validation/Check functions - detect boolean returns and comparisons
+    if (/\breturn\s+(true|false|nil|[^;,\n]*(?:==|~=|>=|<=|>|<))/.test(body)) {
+      return 'Check';
+    }
+    if (/\bif\b.*\bthen\b.*\breturn/.test(body) && body.includes('return')) {
       return 'Check';
     }
 
-    // Check for functions that remove/destroy
-    if (/\b(Destroy|Remove|Delete)\s*\(/.test(body)) {
+    // Destruction functions - remove/destroy/delete operations
+    if (/\b(Destroy|Remove|Delete|Dispose|Clear)\s*\(/.test(body)) {
+      return 'Remove';
+    }
+    if (/\bfor.*\bin.*\bdo\b.*Destroy/.test(body)) {
       return 'Remove';
     }
 
-    // Check for functions that create/new
-    if (/\bInstance\.new\s*\(|\.Parent\s*=|\bcreate/.test(body)) {
+    // Creation functions - new instances, table constructors
+    if (/\bInstance\.new\s*\(|table\.new\s*\(/.test(body)) {
+      return 'Create';
+    }
+    if (/\.Parent\s*=\s*\w+|setParent/.test(body)) {
+      return 'Create';
+    }
+    if (body.startsWith('{') || body.includes('return {')) {
       return 'Create';
     }
 
-    // Check for functions that handle events
-    if (/\bConnect\s*\(|\..*:Connect/.test(body)) {
+    // Event handling - Connect, ChildAdded, etc.
+    if (/\.Connect\s*\(|:Connect\s*\(/.test(body)) {
+      return 'Handle';
+    }
+    if (/ChildAdded|ChildRemoved|Changed|MouseClick|Touched/.test(body)) {
       return 'Handle';
     }
 
-    // Check for functions that filter/search
-    if (/\bfor\b.*\bin\b.*\bif\b/.test(body)) {
-      return 'Filter';
+    // Iteration/Looping - GetChildren, pairs, ipairs, GetDescendants
+    if (/\bGetChildren\b|GetDescendants|pairs|ipairs/.test(body)) {
+      return 'Iterate';
     }
-
-    // Check for functions that loop through children
-    if (/\bGetChildren\b|for.*in.*GetDescendants/.test(body)) {
+    if (/\bfor\b.*\bin\b.*\bdo\b/.test(body)) {
       return 'Iterate';
     }
 
-    // Check for update/refresh functions
-    if (/\bupdate|refresh|reload/.test(body.toLowerCase())) {
+    // Filtering/Searching - loops with conditionals
+    if (/\bfor\b.*\bin\b.*\bif\b/.test(body)) {
+      return 'Filter';
+    }
+    if (/\bfind|search|match|filter/i.test(body.toLowerCase())) {
+      return 'Filter';
+    }
+
+    // Update/Refresh - state changes, redraws
+    if (/\bupdate|refresh|reload|sync/i.test(body.toLowerCase())) {
       return 'Update';
     }
 
-    // Check for render/display functions
-    if (/\bRender|Display|Draw|Print|Show|UI/.test(body)) {
+    // Render/Display - UI updates, drawing
+    if (/\bRender|Display|Draw|redraw|compose/i.test(body)) {
       return 'Render';
     }
 
-    // Check for initialization functions
-    if (/\bInit|Setup|Config/.test(body)) {
+    // Configuration/Initialization - setup, config, init
+    if (/\bInit|Setup|Configure|Config|Initialize/i.test(body)) {
       return 'Init';
     }
 
-    // Check for get/fetch functions
-    if (/\breturn\s+\w+\./.test(body) || /\breturn\s+[\w\[\]\.]+/.test(body)) {
+    // Getters - property access and return
+    if (/\breturn\s+\w+\.\w+|\breturn\s+[\w\[\]\.\'\"]+/.test(body) && !body.includes('=')) {
       return 'Get';
     }
 
-    // Check for set functions
-    if (/\..*\s*=\s*/.test(body) && !body.includes('local')) {
+    // Setters - property assignment
+    if (/\.\w+\s*=\s*\w+|setProperty|setAttribute/i.test(body) && !body.includes('local')) {
       return 'Set';
     }
 
-    // Check for parse/process functions
-    if (/\bsplit|match|parse|process/.test(body.toLowerCase())) {
+    // Parsing/Processing - string/data manipulation
+    if (/\bsplit|match|parse|process|decode|encode/i.test(body.toLowerCase())) {
       return 'Parse';
     }
 
-    // Default based on arg count
+    // Calculation/Math operations
+    if (/[\+\-\*\/\%]/.test(body) && !body.includes('print')) {
+      return 'Calculate';
+    }
+
+    // Default naming based on args
     if (args && args.trim().length > 0) {
       return 'Process';
     }
