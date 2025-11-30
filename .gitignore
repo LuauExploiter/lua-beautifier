@@ -1,8 +1,0 @@
-
-node_modules
-dist
-.env
-.replit
-replit.nix
-*.log
-.DS_Store
